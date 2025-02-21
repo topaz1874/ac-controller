@@ -65,51 +65,82 @@ class StatusBar:
 # ------------------------------ 控制面板类 ------------------------------
 class ControlPanel:
     def __init__(self, parent, mqtt_client):
+        # 创建主容器，使用网格布局
+        self.cont = lv.obj(parent)
+        self.cont.set_size(440, 280)
+        self.cont.center()
+        self.cont.set_style_pad_all(10, 0)  # 设置内边距
+        self.cont.set_grid_dsc_array(lv.GRID_TEMPLATE.CONTENT, lv.GRID_TEMPLATE.CONTENT)
+        
         # 保存MQTT客户端引用
         self.mqtt_client = mqtt_client
         
-        # 创建开关按钮
-        self.power_btn = lv.switch(parent)
-        self.power_btn.set_pos(20, 80)  # 设置按钮位置
-        self.power_btn.add_event_cb(self.on_power_clicked, lv.EVENT.VALUE_CHANGED, None)  # 添加点击事件回调
+        # 创建电源控制区域
+        power_cont = lv.obj(self.cont)
+        power_cont.set_size(400, 60)
+        power_cont.set_style_pad_all(5, 0)
         
-        # 创建电源标签
-        self.power_label = lv.label(parent)
-        self.power_label.set_text("Power")  # 设置标签文本
-        self.power_label.align_to(self.power_btn, lv.ALIGN.OUT_RIGHT_MID, 10, 0)  # 对齐到按钮右侧
+        # 创建开关按钮，使用新的switch组件
+        self.power_btn = lv.switch(power_cont)
+        self.power_btn.set_size(60, 30)
+        self.power_btn.add_event_cb(self.on_power_clicked, lv.EVENT.VALUE_CHANGED, None)
         
-        # 创建状态显示标签
-        self.status_label = lv.label(parent)
-        self.status_label.set_text("")  # 初始状态为空
-        self.status_label.align_to(self.power_label, lv.ALIGN.OUT_RIGHT_MID, 10, 0)  # 对齐到电源标签右侧
+        # 创建电源标签，使用新的样式
+        self.power_label = lv.label(power_cont)
+        self.power_label.set_text("Power")
+        self.power_label.set_style_text_font(lv.font_montserrat_16, 0)  # 设置字体
+        self.power_label.align_to(self.power_btn, lv.ALIGN.OUT_RIGHT_MID, 10, 0)
         
-        # 创建温度滑块
-        self.temp_slider = lv.slider(parent)
-        self.temp_slider.set_pos(20, 140)  # 设置滑块位置
-        self.temp_slider.set_size(200, 20)  # 设置滑块大小
-        self.temp_slider.set_range(16, 30)  # 设置温度范围16-30度
-        self.temp_slider.set_value(current_temp, lv.ANIM.OFF)  # 设置当前温度值
-        self.temp_slider.add_event_cb(self.on_temp_changed, lv.EVENT.VALUE_CHANGED, None)  # 添加值改变事件回调
+        # 创建状态显示标签，添加背景样式
+        self.status_label = lv.label(power_cont)
+        self.status_label.set_text("")
+        self.status_label.set_style_bg_opa(lv.OPA._20, 0)  # 半透明背景
+        self.status_label.set_style_bg_color(lv.palette_main(lv.PALETTE.BLUE), 0)
+        self.status_label.set_style_radius(5, 0)  # 圆角
+        self.status_label.set_style_pad_all(5, 0)  # 内边距
+        self.status_label.align_to(self.power_label, lv.ALIGN.OUT_RIGHT_MID, 10, 0)
         
-        # 创建温度显示标签
-        self.temp_label = lv.label(parent)
-        self.temp_label.set_text(f"Temp: {current_temp}C")  # 显示当前温度
-        self.temp_label.align_to(self.temp_slider, lv.ALIGN.OUT_BOTTOM_MID, 0, 10)  # 对齐到滑块下方
+        # 创建温度控制区域
+        temp_cont = lv.obj(self.cont)
+        temp_cont.set_size(400, 100)
+        temp_cont.set_style_pad_all(5, 0)
+        temp_cont.align_to(power_cont, lv.ALIGN.OUT_BOTTOM_MID, 0, 20)
         
-        # 创建设置温度按钮
-        self.set_temp_btn = lv.btn(parent)
-        self.set_temp_btn.set_size(80, 40)  # 设置按钮大小
-        self.set_temp_btn.align_to(self.temp_slider, lv.ALIGN.OUT_RIGHT_MID, 20, 0)  # 对齐到滑块右侧
-        self.set_temp_btn.add_event_cb(self.on_set_temp_clicked, lv.EVENT.CLICKED, None)  # 添加点击事件回调
+        # 创建温度滑块，使用新的样式
+        self.temp_slider = lv.slider(temp_cont)
+        self.temp_slider.set_size(280, 20)
+        self.temp_slider.set_range(16, 30)
+        self.temp_slider.set_value(current_temp, lv.ANIM.OFF)
+        self.temp_slider.add_event_cb(self.on_temp_changed, lv.EVENT.VALUE_CHANGED, None)
+        # 添加滑块样式
+        self.temp_slider.set_style_bg_color(lv.palette_main(lv.PALETTE.GREY), lv.PART.MAIN)
+        self.temp_slider.set_style_bg_color(lv.palette_main(lv.PALETTE.BLUE), lv.PART.INDICATOR)
+        self.temp_slider.set_style_bg_color(lv.palette_main(lv.PALETTE.BLUE), lv.PART.KNOB)
         
-        # 创建设置温度按钮的标签
+        # 创建温度显示标签，使用新的样式
+        self.temp_label = lv.label(temp_cont)
+        self.temp_label.set_text(f"{current_temp}°C")
+        self.temp_label.set_style_text_font(lv.font_montserrat_20, 0)
+        self.temp_label.align_to(self.temp_slider, lv.ALIGN.OUT_BOTTOM_MID, 0, 10)
+        
+        # 创建设置温度按钮，使用新的按钮样式
+        self.set_temp_btn = lv.btn(temp_cont)
+        self.set_temp_btn.set_size(80, 40)
+        self.set_temp_btn.align_to(self.temp_slider, lv.ALIGN.OUT_RIGHT_MID, 20, 0)
+        self.set_temp_btn.add_event_cb(self.on_set_temp_clicked, lv.EVENT.CLICKED, None)
+        # 添加按钮样式
+        self.set_temp_btn.set_style_bg_color(lv.palette_main(lv.PALETTE.BLUE), 0)
+        self.set_temp_btn.set_style_bg_color(lv.palette_darken(lv.PALETTE.BLUE, 2), lv.STATE.PRESSED)
+        
+        # 创建设置按钮标签
         self.set_temp_label = lv.label(self.set_temp_btn)
-        self.set_temp_label.set_text("Set")  # 设置按钮文本
-        self.set_temp_label.center()  # 文本居中显示
+        self.set_temp_label.set_text("SET")
+        self.set_temp_label.center()
+        self.set_temp_label.set_style_text_color(lv.color_white(), 0)
         
         # 状态显示相关变量
-        self.status_timer = None  # 状态显示计时器
-        self.last_status_time = 0  # 最后状态更新时间
+        self.status_timer = None
+        self.last_status_time = 0
     
     def on_power_clicked(self, evt):
         # 声明使用全局变量
@@ -147,7 +178,7 @@ class ControlPanel:
             # 更新当前温度值
             current_temp = slider.get_value()
             # 更新温度显示标签
-            self.temp_label.set_text(f"Temp: {current_temp}C")
+            self.temp_label.set_text(f"{current_temp}°C")
     
     def on_set_temp_clicked(self, evt):
         # 声明使用全局变量
