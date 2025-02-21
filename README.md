@@ -30,8 +30,62 @@
 
 ## 目录结构
 
+```
+.
+├── esp32_lvgl/              # ESP32 触摸屏控制端
+│   ├── main.py             # 主程序
+│   ├── ili9XXX.py         # 显示屏驱动
+│   └── ft6x36.py          # 触摸屏驱动
+├── stickc_ac_con/          # M5StickC Plus 红外发射端
+│   ├── stickc_ac_con.ino  # Arduino 主程序
+│   └── README.md          # 项目说明
+└── ir_receiver/            # 红外信号接收器
+    └── README.md          # 接收器说明
+```
+
 ## 版本控制
-### Git 仓库结构 
+
+### Git 仓库结构
+
+- `main`: 稳定发布版本
+- `develop`: 日常开发分支
+- `feature/*`: 新功能开发分支
+  - feature/touch-control: 触摸屏控制功能
+  - feature/ir-control: 红外控制功能
+  - feature/mqtt: MQTT通信功能
+- `hotfix/*`: 紧急问题修复分支
+
+### 开发工作流
+
+1. 克隆仓库
+```bash
+git clone https://github.com/topaz1874/ac-controller.git
+cd ac-controller
+```
+
+2. 创建功能分支
+```bash
+git checkout -b feature/new-feature develop
+```
+
+3. 提交更改
+```bash
+git add .
+git commit -m "feat: add new feature"
+```
+
+4. 合并到开发分支
+```bash
+git checkout develop
+git merge --no-ff feature/new-feature
+```
+
+5. 发布版本
+```bash
+git checkout main
+git merge --no-ff develop
+git tag -a v1.0.0 -m "version 1.0.0"
+```
 
 ## 使用说明
 
