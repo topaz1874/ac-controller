@@ -62,81 +62,94 @@ class StatusBar:
         # 直接设置状态文本
         self.status_label.set_text(text)
 
+# ------------------------------ 主界面类 ------------------------------
+class MainScreen:
+    def __init__(self):
+        # 创建主屏幕
+        self.scr = lv.obj()
+        self.scr = lv.scr_act()
+        self.scr.clean()
+        
+        # 创建状态栏
+        self.status_bar = StatusBar(self.scr)
+        
+        # 创建控制面板容器
+        self.main_cont = lv.obj(self.scr)
+        self.main_cont.set_size(480, 290)  # 留出状态栏空间
+        self.main_cont.set_pos(0, 30)      # 位于状态栏下方
+        self.main_cont.set_style_pad_all(0, 0)
+        self.main_cont.set_style_border_width(0, 0)
+        self.main_cont.set_style_radius(0, 0)
+        
+        # 创建控制面板
+        self.control_panel = ControlPanel(self.main_cont, mqtt_client)
+        
+        # 显示屏幕
+        lv.scr_load(self.scr)
+
 # ------------------------------ 控制面板类 ------------------------------
 class ControlPanel:
     def __init__(self, parent, mqtt_client):
-        # 创建主容器，使用网格布局
-        self.cont = lv.obj(parent)
-        self.cont.set_size(440, 280)
-        self.cont.center()
-        self.cont.set_style_pad_all(10, 0)  # 设置内边距
-        self.cont.set_grid_dsc_array(lv.GRID_TEMPLATE.CONTENT, lv.GRID_TEMPLATE.CONTENT)
-        
         # 保存MQTT客户端引用
         self.mqtt_client = mqtt_client
         
-        # 创建电源控制区域
-        power_cont = lv.obj(self.cont)
-        power_cont.set_size(400, 60)
-        power_cont.set_style_pad_all(5, 0)
+        # 创建控制区域（直接在父容器中）
+        control_cont = lv.obj(parent)
+        control_cont.set_size(400, 200)
+        control_cont.set_style_pad_all(5, 0)
+        control_cont.set_style_border_width(0, 0)  # 移除边框
+        control_cont.center()  # 居中显示
         
-        # 创建开关按钮，使用新的switch组件
-        self.power_btn = lv.switch(power_cont)
+        # 创建电源开关按钮（移到左上方）
+        self.power_btn = lv.switch(control_cont)
         self.power_btn.set_size(60, 30)
+        self.power_btn.set_pos(10, 10)  # 设置在左上角
         self.power_btn.add_event_cb(self.on_power_clicked, lv.EVENT.VALUE_CHANGED, None)
         
-        # 创建电源标签，使用新的样式
-        self.power_label = lv.label(power_cont)
+        # 创建电源标签
+        self.power_label = lv.label(control_cont)
         self.power_label.set_text("Power")
-        self.power_label.set_style_text_font(lv.font_montserrat_16, 0)  # 设置字体
         self.power_label.align_to(self.power_btn, lv.ALIGN.OUT_RIGHT_MID, 10, 0)
         
-        # 创建状态显示标签，添加背景样式
-        self.status_label = lv.label(power_cont)
-        self.status_label.set_text("")
-        self.status_label.set_style_bg_opa(lv.OPA._20, 0)  # 半透明背景
-        self.status_label.set_style_bg_color(lv.palette_main(lv.PALETTE.BLUE), 0)
-        self.status_label.set_style_radius(5, 0)  # 圆角
-        self.status_label.set_style_pad_all(5, 0)  # 内边距
-        self.status_label.align_to(self.power_label, lv.ALIGN.OUT_RIGHT_MID, 10, 0)
-        
-        # 创建温度控制区域
-        temp_cont = lv.obj(self.cont)
-        temp_cont.set_size(400, 100)
-        temp_cont.set_style_pad_all(5, 0)
-        temp_cont.align_to(power_cont, lv.ALIGN.OUT_BOTTOM_MID, 0, 20)
-        
-        # 创建温度滑块，使用新的样式
-        self.temp_slider = lv.slider(temp_cont)
+        # 创建温度滑块
+        self.temp_slider = lv.slider(control_cont)
         self.temp_slider.set_size(280, 20)
         self.temp_slider.set_range(16, 30)
         self.temp_slider.set_value(current_temp, lv.ANIM.OFF)
         self.temp_slider.add_event_cb(self.on_temp_changed, lv.EVENT.VALUE_CHANGED, None)
-        # 添加滑块样式
-        self.temp_slider.set_style_bg_color(lv.palette_main(lv.PALETTE.GREY), lv.PART.MAIN)
-        self.temp_slider.set_style_bg_color(lv.palette_main(lv.PALETTE.BLUE), lv.PART.INDICATOR)
-        self.temp_slider.set_style_bg_color(lv.palette_main(lv.PALETTE.BLUE), lv.PART.KNOB)
+        self.temp_slider.set_pos(10, 60)  # 调整位置到power按钮下方
         
-        # 创建温度显示标签，使用新的样式
-        self.temp_label = lv.label(temp_cont)
+        # 设置滑块样式
+        self.temp_slider.set_style_bg_color(lv.color_make(128, 128, 128), lv.PART.MAIN)
+        self.temp_slider.set_style_bg_color(lv.color_make(0, 0, 255), lv.PART.INDICATOR)
+        self.temp_slider.set_style_bg_color(lv.color_make(0, 0, 255), lv.PART.KNOB)
+        
+        # 创建温度显示标签
+        self.temp_label = lv.label(control_cont)
         self.temp_label.set_text(f"{current_temp}°C")
-        self.temp_label.set_style_text_font(lv.font_montserrat_20, 0)
         self.temp_label.align_to(self.temp_slider, lv.ALIGN.OUT_BOTTOM_MID, 0, 10)
         
-        # 创建设置温度按钮，使用新的按钮样式
-        self.set_temp_btn = lv.btn(temp_cont)
+        # 创建设置温度按钮
+        self.set_temp_btn = lv.btn(control_cont)
         self.set_temp_btn.set_size(80, 40)
         self.set_temp_btn.align_to(self.temp_slider, lv.ALIGN.OUT_RIGHT_MID, 20, 0)
         self.set_temp_btn.add_event_cb(self.on_set_temp_clicked, lv.EVENT.CLICKED, None)
-        # 添加按钮样式
-        self.set_temp_btn.set_style_bg_color(lv.palette_main(lv.PALETTE.BLUE), 0)
-        self.set_temp_btn.set_style_bg_color(lv.palette_darken(lv.PALETTE.BLUE, 2), lv.STATE.PRESSED)
+        
+        # 设置按钮样式
+        self.set_temp_btn.set_style_bg_color(lv.color_make(0, 0, 255), 0)
+        self.set_temp_btn.set_style_bg_color(lv.color_make(0, 0, 200), lv.STATE.PRESSED)
         
         # 创建设置按钮标签
         self.set_temp_label = lv.label(self.set_temp_btn)
         self.set_temp_label.set_text("SET")
         self.set_temp_label.center()
-        self.set_temp_label.set_style_text_color(lv.color_white(), 0)
+        self.set_temp_label.set_style_text_color(lv.color_make(255, 255, 255), 0)
+        
+        # 创建状态显示标签（简化样式）
+        self.status_label = lv.label(control_cont)
+        self.status_label.set_text("")
+        self.status_label.set_style_text_color(lv.color_make(0, 0, 255), 0)  # 蓝色文字
+        self.status_label.align(lv.ALIGN.BOTTOM_MID, 0, -10)  # 底部居中对齐
         
         # 状态显示相关变量
         self.status_timer = None
@@ -181,21 +194,23 @@ class ControlPanel:
             self.temp_label.set_text(f"{current_temp}°C")
     
     def on_set_temp_clicked(self, evt):
-        # 声明使用全局变量
-        global current_temp, mqtt_client
+        global current_temp, mqtt_client, is_power_on
         
-        # 检查是否是点击事件
         if evt.get_code() == lv.EVENT.CLICKED:
-            # 尝试发送MQTT消息
             if mqtt_client:
                 try:
+                    # 如果当前是关机状态，先发送开机命令
+                    if not is_power_on:
+                        is_power_on = True
+                        self.power_btn.add_state(lv.STATE.CHECKED)
+                        mqtt_client.publish(MQTT_TOPIC, b"on")
+                        time.sleep(0.1)  # 短暂延时确保命令顺序
+                    
                     # 发送温度设置命令
                     message = f"set {current_temp}".encode()
                     mqtt_client.publish(MQTT_TOPIC, message)
-                    # 显示发送状态
                     self.show_status(f"Sent: set {current_temp}")
                 except Exception as e:
-                    # 如果发送失败，显示错误
                     self.show_status("Send failed")
     
     def set_power_state(self, state):
@@ -207,14 +222,48 @@ class ControlPanel:
     def show_status(self, text):
         # 显示状态文本
         self.status_label.set_text(text)
+        
+        # 创建淡入动画
+        anim_in = lv.anim_t()
+        anim_in.init()
+        anim_in.set_var(self.status_label)
+        anim_in.set_values(lv.OPA._0, lv.OPA._100)  # 完全不透明
+        anim_in.set_time(300)  # 300ms
+        anim_in.set_path_cb(lv.anim_t.path_ease_in)
+        
+        # 设置动画属性回调
+        def cb_set_opacity(label, val):
+            label.set_style_text_opa(val, 0)  # 只改变文字透明度
+        anim_in.set_custom_exec_cb(lambda a, val: cb_set_opacity(self.status_label, val))
+        
+        # 启动动画
+        lv.anim_t.start(anim_in)
+        
         # 记录显示时间
         self.last_status_time = time.time()
     
     def check_status_timeout(self):
         # 检查是否需要清除状态显示
         if self.status_label.get_text() != "":
-            if time.time() - self.last_status_time > 10:  # 增加到10秒
-                self.status_label.set_text("")
+            if time.time() - self.last_status_time > 3:  # 3秒后开始淡出
+                # 创建淡出动画
+                anim_out = lv.anim_t()
+                anim_out.init()
+                anim_out.set_var(self.status_label)
+                anim_out.set_values(lv.OPA._100, lv.OPA._0)  # 从不透明到完全透明
+                anim_out.set_time(500)  # 500ms
+                anim_out.set_path_cb(lv.anim_t.path_ease_out)
+                
+                # 设置动画属性回调
+                def cb_set_opacity(label, val):
+                    label.set_style_text_opa(val, 0)  # 只改变文字透明度
+                    if val == 0:
+                        label.set_text("")
+                anim_out.set_custom_exec_cb(lambda a, val: cb_set_opacity(self.status_label, val))
+                
+                # 启动动画
+                lv.anim_t.start(anim_out)
+                self.last_status_time = 0
 
 # ------------------------------ 网络管理类 ------------------------------
 class NetworkManager:
@@ -302,11 +351,11 @@ class NetworkManager:
                 message = msg.decode().lower()  # 转换为小写
                 if message == "on" and not is_power_on:
                     is_power_on = True
-                    control_panel.set_power_state(True)
+                    self.control_panel.set_power_state(True)
                     self.mqtt_client.publish(MQTT_TOPIC, b"ONON")
                 elif message == "off" and is_power_on:
                     is_power_on = False
-                    control_panel.set_power_state(False)
+                    self.control_panel.set_power_state(False)
                     self.mqtt_client.publish(MQTT_TOPIC, b"OFFOFF")
         except Exception as e:
             print("MQTT Message Error:", str(e))
@@ -323,37 +372,33 @@ class NetworkManager:
             self.connect_mqtt()
 
 # ------------------------------ 主程序 ------------------------------
-# 屏幕初始化
-p16 = Pin(16, Pin.OUT)
-p16.value(1)
-
-disp = ili9488(miso=13, mosi=11, clk=12, cs=10, dc=17, rst=18,
-               spihost=VSPI_HOST, mhz=20, power=-1, backlight=-1,
-               factor=16, hybrid=True, width=480, height=320,
-               invert=False, double_buffer=True, half_duplex=False, rot=-2)
-
-touch = ft6x36(sda=6, scl=7, width=320, height=480, 
-               inv_x=True, inv_y=False, swap_xy=True)
-
-# 创建主屏幕
-scr = lv.obj()
-scr = lv.scr_act()
-scr.clean()
-
-# 创建UI组件
-status_bar = StatusBar(scr)
-network_manager = NetworkManager(status_bar)
-control_panel = ControlPanel(scr, mqtt_client)
-
-# 连接网络
-network_manager.connect_wifi()
-network_manager.connect_mqtt()
-
-# 显示屏幕
-lv.scr_load(scr)
-
-# 主循环
 def main():
+    # 屏幕初始化
+    p16 = Pin(16, Pin.OUT)
+    p16.value(1)
+
+    disp = ili9488(miso=13, mosi=11, clk=12, cs=10, dc=17, rst=18,
+                   spihost=VSPI_HOST, mhz=20, power=-1, backlight=-1,
+                   factor=16, hybrid=True, width=480, height=320,
+                   invert=False, double_buffer=True, half_duplex=False, rot=-2)
+
+    touch = ft6x36(sda=6, scl=7, width=320, height=480, 
+                   inv_x=True, inv_y=False, swap_xy=True)
+
+    # 创建网络管理器
+    network_manager = NetworkManager(None)  # 暂时传入None
+    
+    # 创建主界面
+    main_screen = MainScreen()
+    
+    # 更新网络管理器的状态栏引用
+    network_manager.status_bar = main_screen.status_bar
+    
+    # 连接网络
+    network_manager.connect_wifi()
+    network_manager.connect_mqtt()
+
+    # 主循环
     last_wifi_check = 0
     last_mqtt_ping = 0
     
@@ -388,7 +433,7 @@ def main():
                     network_manager.status_bar.set_status("MQTT Connection Lost")
         
         # 检查状态显示超时
-        control_panel.check_status_timeout()
+        main_screen.control_panel.check_status_timeout()
 
 if __name__ == '__main__':
     main()
