@@ -35,11 +35,20 @@ const int mqtt_port = 1883;               // MQTT端口
 WiFiClient espClient;              // Wi-Fi客户端实例
 PubSubClient client(espClient);    // MQTT客户端实例
 
+// LED 控制相关定义
+const uint8_t LED_PIN = 10;      // LED引脚
+const uint8_t LED_CHANNEL = 0;   // LED使用的LEDC通道
+const double LED_FREQ = 5000;    // LED PWM频率
+const uint8_t LED_RESOLUTION = 8; // LED PWM分辨率（8位，0-255）
+
 // 函数声明
 void sendCommand(uint8_t temperature = 25);  // 在文件开头声明函数
 void updateDisplay();
 void connectMQTT();
 void beepFeedback();
+void breatheLED();
+void breatheLEDOn();
+void breatheLEDOff();
 
 // 校验和计算函数
 uint8_t calculateChecksum(const uint8_t *block, uint16_t length) {
@@ -68,9 +77,52 @@ uint8_t temperatureToByte(uint8_t temp) {
 
 // 蜂鸣器反馈函数
 void beepFeedback() {
-  M5.Beep.tone(4000, 50);  // 第一声蜂鸣
+  // 第一声蜂鸣
+  M5.Beep.tone(4000);  // 开始蜂鸣
+  delay(50);           // 持续50ms
+  M5.Beep.mute();      // 停止蜂鸣
+  
+  delay(100);          // 间隔100ms
+  
+  // 第二声蜂鸣
+  M5.Beep.tone(4000);  // 开始蜂鸣
+  delay(50);           // 持续50ms
+  M5.Beep.mute();      // 停止蜂鸣
+}
+
+// LED 呼吸灯效果 - 开机（渐变）
+void breatheLEDOn() {
+  // 渐亮
+  for(int i = 0; i < 255; i++) {
+    ledcWrite(LED_CHANNEL, i);
+    delay(1);
+  }
+  
+  // 保持最亮
   delay(100);
-  M5.Beep.tone(4000, 50);  // 第二声蜂鸣
+  
+  // 渐暗
+  for(int i = 255; i >= 0; i--) {
+    ledcWrite(LED_CHANNEL, i);
+    delay(1);
+  }
+  
+  // 确保完全关闭
+  ledcWrite(LED_CHANNEL, 0);
+}
+
+// LED 呼吸灯效果 - 关机（快速闪烁两次）
+void breatheLEDOff() {
+  // 第一次闪烁
+  ledcWrite(LED_CHANNEL, 255);
+  delay(100);
+  ledcWrite(LED_CHANNEL, 0);
+  delay(100);
+  
+  // 第二次闪烁
+  ledcWrite(LED_CHANNEL, 255);
+  delay(100);
+  ledcWrite(LED_CHANNEL, 0);
 }
 
 // MQTT消息回调函数 - 当收到MQTT消息时被调用
@@ -86,7 +138,8 @@ void callback(char* topic, byte* payload, unsigned int length) {
   if (message == "on" && !isPowerOn) {
     isPowerOn = true;                   // 更新开关状态为开机
     sendCommand(currentTemp);           // 发送红外开机命令，使用当前温度
-    client.publish(mqtt_topic, "on");   // 发送MQTT确认消息
+    client.publish(mqtt_topic, "stickc send on");   // 发送MQTT确认消息
+    breatheLEDOn();                     // 开机呼吸灯效果
     beepFeedback();                     // 蜂鸣器提示音
     updateDisplay();                    // 更新显示屏内容
   } 
@@ -94,7 +147,8 @@ void callback(char* topic, byte* payload, unsigned int length) {
   else if (message == "off" && isPowerOn) {
     isPowerOn = false;                  // 更新开关状态为关机
     sendCommand(currentTemp);           // 发送红外关机命令，使用当前温度
-    client.publish(mqtt_topic, "off");  // 发送MQTT确认消息
+    client.publish(mqtt_topic, "stickc send off");  // 发送MQTT确认消息
+    breatheLEDOff();                     // 关机呼吸灯效果
     beepFeedback();                     // 蜂鸣器提示音
     updateDisplay();                    // 更新显示屏内容
   }
@@ -105,8 +159,9 @@ void callback(char* topic, byte* payload, unsigned int length) {
     if (temp >= 16 && temp <= 30) {        // 检查温度是否在有效范围内（16-30度）
       currentTemp = temp;                   // 更新当前温度值
       sendCommand(currentTemp);             // 发送红外温度设置命令
+      breatheLEDOn();                         // 温度设置使用开机效果
       client.publish(mqtt_topic, 
-        message.c_str());                   // 发送MQTT确认消息
+        String("stickc send temp:" + String(currentTemp)).c_str());  // 发送确认消息
       beepFeedback();                       // 蜂鸣器提示音
       updateDisplay();                      // 更新显示屏内容
     }
@@ -149,28 +204,49 @@ void updateDisplay() {
 
 // 初始化设置
 void setup() {
+  // 初始化 M5StickC Plus
   M5.begin();
+  
+  // 设置LED PWM
+  ledcSetup(LED_CHANNEL, LED_FREQ, LED_RESOLUTION);
+  ledcAttachPin(LED_PIN, LED_CHANNEL);
+  ledcWrite(LED_CHANNEL, 0);  // 确保LED初始状态为关闭
+  
+  // 设置显示屏方向和字体
   M5.Lcd.setRotation(3);
   M5.Lcd.fillScreen(BLACK);
   M5.Lcd.setTextSize(2);
   
+  // 初始化红外发射器
   irsend.begin();
-  Serial.begin(115200);
   
-  // 连接Wi-Fi
-  M5.Lcd.println("Connecting WiFi...");
-  WiFi.begin(ssid, password);                  // 开始Wi-Fi连接
+  // 连接WiFi
+  WiFi.begin(ssid, password);
   
-  while (WiFi.status() != WL_CONNECTED) {      // 等待Wi-Fi连接
+  // 显示连接状态
+  M5.Lcd.setCursor(0, 0);
+  M5.Lcd.print("Connecting to WiFi");
+  
+  // 等待WiFi连接
+  while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     M5.Lcd.print(".");
   }
   
-  // 设置MQTT
-  client.setServer(mqtt_server, mqtt_port);     // 设置MQTT服务器
-  client.setCallback(callback);                 // 设置回调函数
+  // 显示IP地址
+  M5.Lcd.fillScreen(BLACK);
+  M5.Lcd.setCursor(0, 0);
+  M5.Lcd.print("WiFi connected");
+  M5.Lcd.setCursor(0, 20);
+  M5.Lcd.print("IP: ");
+  M5.Lcd.println(WiFi.localIP());
   
-  updateDisplay();                             // 更新显示
+  // 设置MQTT服务器
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
+  
+  // 初始化显示
+  updateDisplay();
 }
 
 // 发送命令函数实现
@@ -262,6 +338,37 @@ void sendCommand(uint8_t temperature) {
                     38, false, 0, 50);              // 载波频率、LSB、占空比
 }
 
+// 处理按钮事件
+void handleButton() {
+  M5.update();  // 更新按钮状态
+  
+  if (M5.BtnA.wasPressed()) {  // 如果按下按钮A
+    isPowerOn = !isPowerOn;    // 切换电源状态
+    if (isPowerOn) {
+      client.publish(mqtt_topic, "stickc send on");
+      sendCommand(currentTemp);  // 开机时发送当前温度设置
+      breatheLEDOn();           // 开机呼吸灯效果
+    } else {
+      client.publish(mqtt_topic, "stickc send off");
+      breatheLEDOff();          // 关机呼吸灯效果
+    }
+    beepFeedback();           // 蜂鸣器提示音
+    updateDisplay();          // 更新显示
+  }
+  
+  if (M5.BtnB.wasPressed()) {  // 如果按下按钮B
+    if (isPowerOn) {           // 只在开机状态下调节温度
+      currentTemp++;           // 增加温度
+      if (currentTemp > 30) currentTemp = 16;  // 温度循环
+      sendCommand(currentTemp);
+      client.publish(mqtt_topic, String("stickc send temp:" + String(currentTemp)).c_str());
+      breatheLEDOn();         // 温度调节使用开机效果
+      beepFeedback();        // 蜂鸣器提示音
+      updateDisplay();       // 更新显示
+    }
+  }
+}
+
 // 主循环
 void loop() {
   M5.update();
@@ -277,13 +384,5 @@ void loop() {
   }
   client.loop();                              // MQTT消息处理
   
-  // 按钮控制
-  if (M5.BtnA.wasPressed()) {                 // 如果按下按钮A
-    isPowerOn = !isPowerOn;                   // 切换开关状态
-    sendCommand(currentTemp);                  // 发送红外命令，使用当前温度
-    client.publish(mqtt_topic, 
-      isPowerOn ? "on" : "off");              // 发送状态消息
-    beepFeedback();                           // 蜂鸣器反馈
-    updateDisplay();                          // 更新显示
-  }
+  handleButton();                              // 处理按钮事件
 }
