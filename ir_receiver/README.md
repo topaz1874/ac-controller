@@ -97,6 +97,96 @@
 - [IRremoteESP8266 库文档](https://github.com/crankyoldgit/IRremoteESP8266)
 - [红外通信协议说明](https://github.com/crankyoldgit/IRremoteESP8266/wiki)
 
+## 版本控制
+
+本项目使用Git进行版本管理，以下是基本的版本控制操作：
+
+### 初始化仓库
+
+```bash
+# 初始化Git仓库
+git init
+
+# 添加所有文件到暂存区
+git add .
+
+# 提交初始版本
+git commit -m "初始化项目：红外信号接收解码器"
+```
+
+### 常用Git命令
+
+```bash
+# 查看仓库状态
+git status
+
+# 查看提交历史
+git log --oneline --graph
+
+# 创建并切换到新分支
+git checkout -b feature/new-feature
+
+# 合并分支
+git checkout main
+git merge feature/new-feature
+
+# 推送到远程仓库
+git remote add origin https://github.com/yourusername/ir-receiver.git
+git push -u origin main
+```
+
+### 提交规范
+
+为保持代码库的整洁和可读性，提交信息应遵循以下格式：
+
+- `feat:` 新功能
+- `fix:` 修复问题
+- `docs:` 文档更新
+- `style:` 代码格式调整
+- `refactor:` 代码重构
+- `test:` 测试相关
+- `chore:` 构建过程或辅助工具变动
+
+## ESP32 LVGL空调控制界面
+
+本项目还包含一个基于ESP32和LVGL库开发的空调控制界面，位于`esp32_lvgl`目录下。
+
+### 功能特点
+
+- 美观的图形用户界面
+- 电源开关控制
+- 温度调节滑块
+- 温度设置按钮
+- WiFi连接状态显示
+- MQTT通信功能
+- 动画效果（淡入淡出、折叠展开）
+
+### 硬件要求
+
+- ESP32开发板
+- ILI9488 LCD显示屏
+- FT6X36触摸控制器
+
+### 软件依赖
+
+- MicroPython固件
+- LVGL库
+- umqtt.simple库
+
+### 使用方法
+
+1. 将MicroPython固件烧录到ESP32
+2. 上传`main.py`和所需库文件
+3. 配置WiFi和MQTT连接参数
+4. 重启ESP32即可运行界面
+
+### 界面操作说明
+
+- 点击电源开关按钮开启/关闭空调
+- 开机状态下可以滑动温度滑块调节温度
+- 点击SET按钮发送温度设置命令
+- 界面底部会显示操作状态信息
+
 ## 许可证
 
 MIT License
@@ -118,192 +208,3 @@ MIT License
 - 块分隔符（B010）自动处理
 - 详细的红外信号解析
 - 支持多种空调控制参数解析
-
-## 协议解析字段
-
-解码器可以提取以下关键信息：
-
-- 工作模式（制冷/制热/送风等）
-- 电源开关状态
-- 风速设置
-- 温度设置
-- 自动摆风状态
-- 睡眠模式
-- 强力模式
-- 灯光控制
-- 垂直/水平摆风
-- 体感功能
-- WiFi状态
-- 节能模式
-
-## 信号特征
-
-- 起始码：~9000us 高电平，~4500us 低电平
-- 数据位编码：
-  - 1: ~600us 高电平，~1600us 低电平
-  - 0: ~600us 高电平，~500us 低电平
-- 块分隔符：B010（在第32位之后）
-- 连接码：~600us 高电平，~20000us 低电平
-
-## 使用方法
-
-1. 运行解码器：
-```bash
-python gree_ir_decoder.py
-```
-
-2. 输入原始红外信号数据（逗号分隔）：
-```
-请输入原始红外信号数据（逗号分隔）:
-9000,4500,600,1600,600,500...
-```
-
-## 输出示例
-
-```
-数据解析 (每行: 二进制[LSB] -> 十六进制):
---------------------------------------------------
-Binary(LSB)      Hex
---------------------------------------------------
-10101010  ->  0xAA
-00110011  ->  0x33
-...
---------------------------------------------------
-
-协议解析结果:
---------------------------------------------------
-模式.................. 制冷
-电源.................. 开
-风速.................. 自动
-温度.................. 25°C
-强力模式.............. 关
-灯光.................. 开
-...
---------------------------------------------------
-```
-
-## 输入数据要求
-
-- 数据为逗号分隔的数值
-- 每个数值代表时间间隔（微秒）
-- 奇数位置：高电平持续时间
-- 偶数位置：低电平持续时间
-
-## 注意事项
-
-1. 确保输入完整的信号序列
-2. 程序自动处理连接码
-3. 使用 LSB 解码方式
-4. 支持多种空调控制参数解析
-
-## 依赖
-
-- Python 3.6+
-- 无需额外第三方库
-
-## 参考资料
-
-- [IRremoteESP8266 库](https://github.com/crankyoldgit/IRremoteESP8266)
-- 格力空调红外协议规范
-
-## 许可证
-
-MIT License
-
-## Git 版本控制最佳实践
-
-### 仓库初始化
-
-```bash
-# 创建新仓库
-git init
-
-# 添加所有文件
-git add .
-
-# 提交初始版本
-git commit -m "初始化项目：格力空调红外信号解码器"
-```
-
-### 分支管理策略
-
-```bash
-# 创建开发分支
-git branch develop
-git checkout develop
-
-# 功能分支工作流
-git checkout -b feature/protocol-enhancement
-# 进行功能开发
-git add .
-git commit -m "增强协议解析功能"
-
-# 合并功能分支
-git checkout develop
-git merge feature/protocol-enhancement
-```
-
-### 版本标签管理
-
-```bash
-# 添加版本标签
-git tag -a v1.0.0 -m "第一个稳定版本"
-
-# 推送标签到远程
-git push origin v1.0.0
-```
-
-### 远程仓库操作
-
-```bash
-# 添加远程仓库
-git remote add origin https://github.com/yourusername/gree-ir-decoder.git
-
-# 推送代码
-git push -u origin main
-git push -u origin develop
-```
-
-### 忽略文件
-
-创建 `.gitignore` 文件：
-
-```gitignore
-# Python 缓存文件
-__pycache__/
-*.py[cod]
-
-# 虚拟环境
-venv/
-.env/
-
-# IDE配置
-.vscode/
-.idea/
-
-# 日志文件
-*.log
-```
-
-### 提交规范
-
-- `feat:` 新功能
-- `fix:` 修复问题
-- `docs:` 文档更新
-- `style:` 代码格式
-- `refactor:` 重构
-- `test:` 测试
-- `chore:` 构建过程或辅助工具变动
-
-### 推荐工作流
-
-1. `main`：稳定发布分支
-2. `develop`：开发集成分支
-3. `feature/*`：功能开发分支
-4. `hotfix/*`：紧急修复分支
-
-## 持续集成建议
-
-- 使用 GitHub Actions
-- 配置自动化测试
-- 代码质量检查 

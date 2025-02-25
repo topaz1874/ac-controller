@@ -191,7 +191,7 @@ class ControlPanel:
                 anim = lv.anim_t()
                 anim.init()
                 anim.set_var(self.temp_cont)
-                anim.set_values(0, 160)  # 从0到100的高度
+                anim.set_values(0, 160)  # 从0到160的高度
                 anim.set_time(300)  # 300ms
                 anim.set_path_cb(lv.anim_t.path_ease_out)
                 
@@ -207,7 +207,7 @@ class ControlPanel:
                 anim = lv.anim_t()
                 anim.init()
                 anim.set_var(self.temp_cont)
-                anim.set_values(160, 0)  # 从100到0的高度
+                anim.set_values(160, 0)  # 从160到0的高度
                 anim.set_time(300)  # 300ms
                 anim.set_path_cb(lv.anim_t.path_ease_in)
                 
@@ -291,11 +291,14 @@ class ControlPanel:
         # 显示状态文本
         self.status_label.set_text(text)
         
+        # 先设置透明度为0，避免闪烁
+        self.status_label.set_style_text_opa(lv.OPA._0, 0)
+        
         # 创建淡入动画
         anim_in = lv.anim_t()
         anim_in.init()
         anim_in.set_var(self.status_label)
-        anim_in.set_values(lv.OPA._0, lv.OPA._100)  # 完全不透明
+        anim_in.set_values(lv.OPA._0, lv.OPA._100)  # 从完全透明到不透明
         anim_in.set_time(300)  # 300ms
         anim_in.set_path_cb(lv.anim_t.path_ease_in)
         
@@ -314,6 +317,10 @@ class ControlPanel:
         # 检查是否需要清除状态显示
         if self.status_label.get_text() != "":  # 如果状态标签有文本
             if time.time() - self.last_status_time > 3:  # 3秒后开始淡出
+                # 防止重复触发动画
+                if self.last_status_time == 0:
+                    return
+                    
                 # 创建淡出动画
                 anim_out = lv.anim_t()  # 创建动画对象
                 anim_out.init()  # 初始化动画
@@ -322,12 +329,17 @@ class ControlPanel:
                 anim_out.set_time(500)  # 500ms动画时间
                 anim_out.set_path_cb(lv.anim_t.path_ease_out)  # 设置动画路径
                 
-                # 设置动画属性回调
+                # 设置动画属性回调和结束回调
                 def cb_set_opacity(label, val):
                     label.set_style_text_opa(val, 0)  # 只改变文字透明度
-                    if val == 0:
-                        label.set_text("")  # 透明度为0时清空文本
+                
+                # 设置动画结束回调
+                def anim_ready_cb(anim):
+                    self.status_label.set_text("")  # 动画完成后清空文本
+                
+                # 设置回调函数
                 anim_out.set_custom_exec_cb(lambda a, val: cb_set_opacity(self.status_label, val))
+                anim_out.set_ready_cb(lambda a: anim_ready_cb(a))
                 
                 # 启动动画
                 lv.anim_t.start(anim_out)
@@ -441,67 +453,109 @@ class NetworkManager:
 
 # ------------------------------ 主程序 ------------------------------
 def main():
-    # 屏幕初始化
+    # 初始化GPIO16引脚为输出模式
     p16 = Pin(16, Pin.OUT)
+    # 设置GPIO16引脚为高电平，用于控制屏幕电源
     p16.value(1)
 
-    disp = ili9488(miso=13, mosi=11, clk=12, cs=10, dc=17, rst=18,
-                   spihost=VSPI_HOST, mhz=20, power=-1, backlight=-1,
-                   factor=16, hybrid=True, width=480, height=320,
-                   invert=False, double_buffer=True, half_duplex=False, rot=-2)
+    # 初始化ILI9488显示屏
+    disp = ili9488(
+        miso=13,           # MISO引脚连接到GPIO13
+        mosi=11,           # MOSI引脚连接到GPIO11
+        clk=12,            # 时钟引脚连接到GPIO12
+        cs=10,             # 片选引脚连接到GPIO10
+        dc=17,             # 数据/命令引脚连接到GPIO17
+        rst=18,            # 复位引脚连接到GPIO18
+        spihost=VSPI_HOST, # 使用VSPI总线
+        mhz=20,            # SPI时钟频率20MHz
+        power=-1,          # 不使用电源控制引脚
+        backlight=-1,      # 不使用背光控制引脚
+        factor=16,         # 颜色因子
+        hybrid=True,       # 使用混合模式
+        width=480,         # 屏幕宽度480像素
+        height=320,        # 屏幕高度320像素
+        invert=False,      # 不反转颜色
+        double_buffer=True, # 使用双缓冲
+        half_duplex=False, # 不使用半双工模式
+        rot=-2             # 屏幕旋转角度
+    )
 
-    touch = ft6x36(sda=6, scl=7, width=320, height=480, 
-                   inv_x=True, inv_y=False, swap_xy=True)
+    # 初始化FT6X36触摸控制器
+    touch = ft6x36(
+        sda=6,             # I2C数据线连接到GPIO6
+        scl=7,             # I2C时钟线连接到GPIO7
+        width=320,         # 触摸屏宽度
+        height=480,        # 触摸屏高度
+        inv_x=True,        # X轴反转
+        inv_y=False,       # Y轴不反转
+        swap_xy=True       # 交换X和Y坐标
+    )
 
-    # 创建网络管理器
-    network_manager = NetworkManager(None)  # 暂时传入None
+    # 创建网络管理器实例，暂时不传入状态栏引用
+    network_manager = NetworkManager(None)
     
     # 创建主界面
     main_screen = MainScreen()
     
-    # 更新网络管理器的状态栏引用
+    # 更新网络管理器的状态栏引用，使其能够显示网络状态
     network_manager.status_bar = main_screen.status_bar
     
-    # 连接网络
+    # 连接WiFi网络
     network_manager.connect_wifi()
+    # 连接MQTT服务器
     network_manager.connect_mqtt()
 
-    # 主循环
-    last_wifi_check = 0
-    last_mqtt_ping = 0
+    # 初始化主循环计时器
+    last_wifi_check = 0    # 上次WiFi检查时间
+    last_mqtt_ping = 0     # 上次MQTT ping时间
     
+    # 主循环
     while True:
+        # 短暂延时，避免CPU占用过高
         time.sleep(0.1)
         
-        # 定期检查连接状态
+        # 获取当前时间戳
         current_time = time.time()
         
-        # 每5秒检查一次WiFi
+        # 每5秒检查一次WiFi和MQTT连接状态
         if current_time - last_wifi_check > 5:
+            # 调用连接检查函数
             network_manager.check_connections()
+            # 更新上次检查时间
             last_wifi_check = current_time
         
-        # 每60秒发送一次MQTT ping
+        # 每60秒发送一次MQTT ping，保持连接活跃
         if current_time - last_mqtt_ping > 60:
+            # 检查MQTT客户端是否存在
             if network_manager.mqtt_client:
                 try:
+                    # 发送ping命令
                     network_manager.mqtt_client.ping()
+                    # 更新上次ping时间
                     last_mqtt_ping = current_time
                 except:
+                    # 如果ping失败，重置MQTT客户端
                     network_manager.mqtt_client = None
+                    # 更新状态栏显示连接丢失信息
                     network_manager.status_bar.set_status("MQTT Connection Lost")
         
         # 检查MQTT消息
         if network_manager.mqtt_client:
             try:
+                # 检查是否有新消息
                 network_manager.mqtt_client.check_msg()
             except Exception as e:
-                if str(e) != "-1":  # 忽略常见的-1错误
+                # 忽略常见的-1错误（无消息可读）
+                if str(e) != "-1":
+                    # 其他错误则重置MQTT客户端
                     network_manager.mqtt_client = None
+                    # 更新状态栏显示连接丢失信息
                     network_manager.status_bar.set_status("MQTT Connection Lost")
         
-        # 检查状态显示超时
+        # 检查状态显示超时，处理状态文本的淡出效果
         main_screen.control_panel.check_status_timeout()
 
+# 程序入口点
 if __name__ == '__main__':
+    # 调用主函数
     main() 
