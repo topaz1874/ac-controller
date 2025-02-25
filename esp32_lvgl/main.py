@@ -94,30 +94,37 @@ class ControlPanel:
         self.mqtt_client = mqtt_client
         
         # 创建控制区域（直接在父容器中）
-        control_cont = lv.obj(parent)
-        control_cont.set_size(400, 200)
-        control_cont.set_style_pad_all(5, 0)
-        control_cont.set_style_border_width(0, 0)  # 移除边框
-        control_cont.center()  # 居中显示
+        self.control_cont = lv.obj(parent)
+        self.control_cont.set_size(460, 270)
+        self.control_cont.set_style_pad_all(5, 0)
+        self.control_cont.set_style_border_width(0, 0)  # 移除边框
+        self.control_cont.center()  # 居中显示
         
         # 创建电源开关按钮（移到左上方）
-        self.power_btn = lv.switch(control_cont)
-        self.power_btn.set_size(60, 30)
+        self.power_btn = lv.switch(self.control_cont)
+        self.power_btn.set_size(80, 40)
         self.power_btn.set_pos(10, 10)  # 设置在左上角
         self.power_btn.add_event_cb(self.on_power_clicked, lv.EVENT.VALUE_CHANGED, None)
         
         # 创建电源标签
-        self.power_label = lv.label(control_cont)
+        self.power_label = lv.label(self.control_cont)
         self.power_label.set_text("Power")
         self.power_label.align_to(self.power_btn, lv.ALIGN.OUT_RIGHT_MID, 10, 0)
         
-        # 创建温度滑块
-        self.temp_slider = lv.slider(control_cont)
-        self.temp_slider.set_size(280, 20)
+        # 创建温度控制容器（可折叠）
+        self.temp_cont = lv.obj(self.control_cont)
+        self.temp_cont.set_size(380, 160)
+        self.temp_cont.set_pos(10, 60)  # 位于电源按钮下方
+        self.temp_cont.set_style_border_width(0, 0)  # 无边框
+        self.temp_cont.set_style_pad_all(5, 0)
+        
+        # 创建温度滑块（放在温度容器中）
+        self.temp_slider = lv.slider(self.temp_cont)
+        self.temp_slider.set_size(250, 20)
         self.temp_slider.set_range(16, 30)
         self.temp_slider.set_value(current_temp, lv.ANIM.OFF)
         self.temp_slider.add_event_cb(self.on_temp_changed, lv.EVENT.VALUE_CHANGED, None)
-        self.temp_slider.set_pos(10, 60)  # 调整位置到power按钮下方
+        self.temp_slider.set_pos(0, 10)  # 在容器内的位置
         
         # 设置滑块样式
         self.temp_slider.set_style_bg_color(lv.color_make(128, 128, 128), lv.PART.MAIN)
@@ -125,28 +132,31 @@ class ControlPanel:
         self.temp_slider.set_style_bg_color(lv.color_make(0, 0, 255), lv.PART.KNOB)
         
         # 创建温度显示标签
-        self.temp_label = lv.label(control_cont)
-        self.temp_label.set_text(f"{current_temp}°C")
-        self.temp_label.align_to(self.temp_slider, lv.ALIGN.OUT_BOTTOM_MID, 0, 10)
+        self.temp_label = lv.label(self.temp_cont)
+        self.temp_label.set_text(f"{current_temp}°C")  # 设置初始温度文本
+        self.temp_label.align_to(self.temp_slider, lv.ALIGN.OUT_BOTTOM_MID, 0, 10)  # 放在滑块下方居中
         
-        # 创建设置温度按钮
-        self.set_temp_btn = lv.btn(control_cont)
-        self.set_temp_btn.set_size(80, 40)
-        self.set_temp_btn.align_to(self.temp_slider, lv.ALIGN.OUT_RIGHT_MID, 20, 0)
-        self.set_temp_btn.add_event_cb(self.on_set_temp_clicked, lv.EVENT.CLICKED, None)
+        # 创建设置温度按钮 - 放在温度标签下方
+        self.set_temp_btn = lv.btn(self.temp_cont)  # 创建按钮对象
+        self.set_temp_btn.set_size(100, 40)  # 设置按钮大小
+        self.set_temp_btn.align_to(self.temp_label, lv.ALIGN.OUT_BOTTOM_MID, 0, 15)  # 放在温度标签下方居中
+        self.set_temp_btn.add_event_cb(self.on_set_temp_clicked, lv.EVENT.CLICKED, None)  # 添加点击事件回调
         
         # 设置按钮样式
-        self.set_temp_btn.set_style_bg_color(lv.color_make(0, 0, 255), 0)
-        self.set_temp_btn.set_style_bg_color(lv.color_make(0, 0, 200), lv.STATE.PRESSED)
+        self.set_temp_btn.set_style_bg_color(lv.color_make(0, 0, 255), 0)  # 正常状态为蓝色
+        self.set_temp_btn.set_style_bg_color(lv.color_make(0, 0, 200), lv.STATE.PRESSED)  # 按下状态为深蓝色
         
         # 创建设置按钮标签
-        self.set_temp_label = lv.label(self.set_temp_btn)
-        self.set_temp_label.set_text("SET")
-        self.set_temp_label.center()
-        self.set_temp_label.set_style_text_color(lv.color_make(255, 255, 255), 0)
+        self.set_temp_label = lv.label(self.set_temp_btn)  # 创建标签对象
+        self.set_temp_label.set_text("SET")  # 设置标签文本
+        self.set_temp_label.center()  # 标签居中
+        self.set_temp_label.set_style_text_color(lv.color_make(255, 255, 255), 0)  # 设置文字颜色为白色
+        
+        # 添加按钮冷却时间变量
+        self.btn_cooldown_time = 0  # 按钮冷却时间戳
         
         # 创建状态显示标签（简化样式）
-        self.status_label = lv.label(control_cont)
+        self.status_label = lv.label(self.control_cont)
         self.status_label.set_text("")
         self.status_label.set_style_text_color(lv.color_make(0, 0, 255), 0)  # 蓝色文字
         self.status_label.align(lv.ALIGN.BOTTOM_MID, 0, -10)  # 底部居中对齐
@@ -154,7 +164,12 @@ class ControlPanel:
         # 状态显示相关变量
         self.status_timer = None
         self.last_status_time = 0
-    
+        
+        # 初始状态设置
+        if not is_power_on:
+            # 初始状态为关闭时，隐藏温度控制容器
+            self.temp_cont.add_flag(lv.obj.FLAG.HIDDEN)
+        
     def on_power_clicked(self, evt):
         # 声明使用全局变量
         global is_power_on, mqtt_client
@@ -166,6 +181,45 @@ class ControlPanel:
         if evt.get_code() == lv.EVENT.VALUE_CHANGED:
             # 更新电源状态为按钮的当前状态
             is_power_on = btn.has_state(lv.STATE.CHECKED)
+            
+            # 根据电源状态显示或隐藏温度控制容器
+            if is_power_on:
+                # 创建展开动画
+                self.temp_cont.clear_flag(lv.obj.FLAG.HIDDEN)  # 先显示容器
+                
+                # 创建高度动画
+                anim = lv.anim_t()
+                anim.init()
+                anim.set_var(self.temp_cont)
+                anim.set_values(0, 160)  # 从0到100的高度
+                anim.set_time(300)  # 300ms
+                anim.set_path_cb(lv.anim_t.path_ease_out)
+                
+                # 设置动画属性回调
+                def cb_set_height(obj, height):
+                    obj.set_height(height)
+                anim.set_custom_exec_cb(lambda a, val: cb_set_height(self.temp_cont, val))
+                
+                # 启动动画
+                lv.anim_t.start(anim)
+            else:
+                # 创建折叠动画
+                anim = lv.anim_t()
+                anim.init()
+                anim.set_var(self.temp_cont)
+                anim.set_values(160, 0)  # 从100到0的高度
+                anim.set_time(300)  # 300ms
+                anim.set_path_cb(lv.anim_t.path_ease_in)
+                
+                # 设置动画属性回调和结束回调
+                def cb_set_height(obj, height):
+                    obj.set_height(height)
+                    if height == 0:
+                        obj.add_flag(lv.obj.FLAG.HIDDEN)  # 动画结束后隐藏
+                anim.set_custom_exec_cb(lambda a, val: cb_set_height(self.temp_cont, val))
+                
+                # 启动动画
+                lv.anim_t.start(anim)
             
             # 尝试发送MQTT消息
             if mqtt_client:
@@ -194,30 +248,44 @@ class ControlPanel:
             self.temp_label.set_text(f"{current_temp}°C")
     
     def on_set_temp_clicked(self, evt):
+        # 声明使用全局变量
         global current_temp, mqtt_client, is_power_on
         
+        # 检查是否是点击事件
         if evt.get_code() == lv.EVENT.CLICKED:
+            # 尝试发送MQTT消息
             if mqtt_client:
                 try:
-                    # 如果当前是关机状态，先发送开机命令
-                    if not is_power_on:
-                        is_power_on = True
-                        self.power_btn.add_state(lv.STATE.CHECKED)
-                        mqtt_client.publish(MQTT_TOPIC, b"on")
-                        time.sleep(0.1)  # 短暂延时确保命令顺序
-                    
-                    # 发送温度设置命令
-                    message = f"set {current_temp}".encode()
-                    mqtt_client.publish(MQTT_TOPIC, message)
-                    self.show_status(f"Sent: set {current_temp}")
+                    # 只有在开机状态下才发送温度设置命令
+                    if is_power_on:
+                        # 发送温度设置命令
+                        message = f"set {current_temp}".encode()
+                        mqtt_client.publish(MQTT_TOPIC, message)
+                        self.show_status(f"Sent: set {current_temp}")
+                        
+                        # 禁用按钮3秒
+                        self.set_temp_btn.add_state(lv.STATE.DISABLED)  # 禁用按钮
+                        
+                        # 创建定时器，3秒后恢复按钮状态
+                        def enable_button(timer):
+                            self.set_temp_btn.clear_state(lv.STATE.DISABLED)  # 恢复按钮状态
+                        
+                        # 使用定时器延迟恢复按钮状态
+                        lv.timer_create(enable_button, 3000, None)  # 3000ms后执行
                 except Exception as e:
                     self.show_status("Send failed")
     
     def set_power_state(self, state):
         if state:
             self.power_btn.add_state(lv.STATE.CHECKED)
+            # 显示温度控制容器
+            self.temp_cont.clear_flag(lv.obj.FLAG.HIDDEN)
+            self.temp_cont.set_height(100)  # 恢复高度
         else:
             self.power_btn.clear_state(lv.STATE.CHECKED)
+            # 隐藏温度控制容器
+            self.temp_cont.add_flag(lv.obj.FLAG.HIDDEN)
+            self.temp_cont.set_height(0)  # 设置高度为0
     
     def show_status(self, text):
         # 显示状态文本
@@ -244,26 +312,26 @@ class ControlPanel:
     
     def check_status_timeout(self):
         # 检查是否需要清除状态显示
-        if self.status_label.get_text() != "":
+        if self.status_label.get_text() != "":  # 如果状态标签有文本
             if time.time() - self.last_status_time > 3:  # 3秒后开始淡出
                 # 创建淡出动画
-                anim_out = lv.anim_t()
-                anim_out.init()
-                anim_out.set_var(self.status_label)
+                anim_out = lv.anim_t()  # 创建动画对象
+                anim_out.init()  # 初始化动画
+                anim_out.set_var(self.status_label)  # 设置动画目标
                 anim_out.set_values(lv.OPA._100, lv.OPA._0)  # 从不透明到完全透明
-                anim_out.set_time(500)  # 500ms
-                anim_out.set_path_cb(lv.anim_t.path_ease_out)
+                anim_out.set_time(500)  # 500ms动画时间
+                anim_out.set_path_cb(lv.anim_t.path_ease_out)  # 设置动画路径
                 
                 # 设置动画属性回调
                 def cb_set_opacity(label, val):
                     label.set_style_text_opa(val, 0)  # 只改变文字透明度
                     if val == 0:
-                        label.set_text("")
+                        label.set_text("")  # 透明度为0时清空文本
                 anim_out.set_custom_exec_cb(lambda a, val: cb_set_opacity(self.status_label, val))
                 
                 # 启动动画
                 lv.anim_t.start(anim_out)
-                self.last_status_time = 0
+                self.last_status_time = 0  # 重置状态显示时间
 
 # ------------------------------ 网络管理类 ------------------------------
 class NetworkManager:
@@ -436,4 +504,4 @@ def main():
         main_screen.control_panel.check_status_timeout()
 
 if __name__ == '__main__':
-    main()
+    main() 
