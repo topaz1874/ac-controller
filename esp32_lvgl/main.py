@@ -99,12 +99,38 @@ class ControlPanel:
         self.control_cont.set_style_pad_all(5, 0)
         self.control_cont.set_style_border_width(0, 0)  # 移除边框
         self.control_cont.center()  # 居中显示
-        
-        # 创建电源开关按钮（移到左上方）
+
+        # 创建电源开关按钮（移到图标右侧）
         self.power_btn = lv.switch(self.control_cont)
         self.power_btn.set_size(80, 40)
-        self.power_btn.set_pos(10, 10)  # 设置在左上角
-        self.power_btn.add_event_cb(self.on_power_clicked, lv.EVENT.VALUE_CHANGED, None)
+        self.power_btn.set_pos(100, 20)  # 设置在图标右侧
+        self.power_btn.add_event_cb(self.on_power_clicked, lv.EVENT.VALUE_CHANGED, None)        
+        
+        # 创建遥控器图标 - 使用文件
+        self.icon_img = lv.img(self.control_cont)
+        
+        # 从文件加载图像
+        try:
+            # 直接从文件加载图像
+            with open("./aircon.png", "rb") as f:
+                png_data = f.read()
+            img = lv.img_dsc_t({
+                "data_size": len(png_data),
+                "data": png_data
+            })
+            self.icon_img.set_src(img)
+            
+            # 设置图标位置
+            btn_center_y = 20 + (40 / 2)  # 按钮y坐标 + 按钮高度的一半
+            # 设置图标位置，使其垂直中心与按钮垂直中心对齐
+            self.icon_img.set_pos(10, int(btn_center_y - 40))  # 假设图标高度约为80像素            
+            # 可选：设置图像大小（如果需要调整大小）
+            self.icon_img.set_zoom(256)  # 256 = 100%，可以调整缩放比例
+
+        except Exception as e:
+            print("图标加载失败:", str(e))
+        
+
         
         # 创建电源标签
         self.power_label = lv.label(self.control_cont)
@@ -113,8 +139,8 @@ class ControlPanel:
         
         # 创建温度控制容器（可折叠）
         self.temp_cont = lv.obj(self.control_cont)
-        self.temp_cont.set_size(380, 160)
-        self.temp_cont.set_pos(10, 60)  # 位于电源按钮下方
+        self.temp_cont.set_size(280, 160)
+        self.temp_cont.set_pos(100, 80)  # 位于电源按钮下方
         self.temp_cont.set_style_border_width(0, 0)  # 无边框
         self.temp_cont.set_style_pad_all(5, 0)
         
