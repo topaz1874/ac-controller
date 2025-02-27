@@ -11,6 +11,7 @@ from umqtt.simple import MQTTClient
 current_temp = 25                 # 当前温度
 is_power_on = False              # 电源状态
 wifi_connected = False           # Wi-Fi连接状态
+power_on_time = 0                # 开机时间戳
 
 # ------------------------------ Wi-Fi和MQTT设置 ------------------------------
 WIFI_SSID = "office"             # Wi-Fi名称
@@ -31,11 +32,11 @@ class StatusBar:
         self.container.set_style_radius(0, 0)                         # 无圆角
         self.container.set_style_border_width(0, 0)                   # 无边框
         
-        # 创建Wi-Fi图标和SSID (左侧)
-        self.wifi_label = lv.label(self.container)
-        self.wifi_label.set_text(f"WiFi: {WIFI_SSID}")
-        self.wifi_label.set_style_text_color(lv.color_hex(0xFFFFFF), 0)  # 白色文字
-        self.wifi_label.align(lv.ALIGN.LEFT_MID, 5, 0)
+        # 创建时间标签 (左侧)
+        self.time_label = lv.label(self.container)
+        self.time_label.set_style_text_color(lv.color_hex(0xFFFFFF), 0)  # 白色文字
+        self.time_label.align(lv.ALIGN.LEFT_MID, 5, 0)
+        self.update_time()  # 初始化时间显示
         
         # 创建信号强度标签 (右侧)
         self.signal_label = lv.label(self.container)
@@ -47,6 +48,19 @@ class StatusBar:
         self.status_label.set_style_text_color(lv.color_hex(0xFFFFFF), 0)  # 白色文字
         self.status_label.align(lv.ALIGN.CENTER, 0, 0)
         self.status_label.set_text("Initializing...")
+        
+        # 创建时间更新定时器
+        self.time_timer = lv.timer_create(self.timer_cb, 1000, None)  # 每秒更新一次
+    
+    def timer_cb(self, timer):
+        # 更新时间显示
+        self.update_time()
+    
+    def update_time(self):
+        # 获取当前时间并格式化
+        current_time = time.localtime()
+        time_str = "{:02d}:{:02d}:{:02d}".format(current_time[3], current_time[4], current_time[5])
+        self.time_label.set_text(time_str)
     
     def update_signal(self, rssi):
         # 更新信号强度显示
@@ -130,12 +144,19 @@ class ControlPanel:
         except Exception as e:
             print("图标加载失败:", str(e))
         
-
-        
         # 创建电源标签
         self.power_label = lv.label(self.control_cont)
         self.power_label.set_text("Power")
         self.power_label.align_to(self.power_btn, lv.ALIGN.OUT_RIGHT_MID, 10, 0)
+        
+        # 创建开机时间标签
+        self.power_time_label = lv.label(self.control_cont)
+        self.power_time_label.set_style_text_color(lv.color_make(0, 200, 0), 0)  # 绿色文字
+        self.power_time_label.align_to(self.power_label, lv.ALIGN.OUT_RIGHT_MID, 10, 0)
+        self.power_time_label.add_flag(lv.obj.FLAG.HIDDEN)  # 初始状态隐藏
+        
+        # 创建开机时间更新定时器
+        self.power_timer = lv.timer_create(self.update_power_time, 1000, None)  # 每秒更新一次
         
         # 创建温度控制容器（可折叠）
         self.temp_cont = lv.obj(self.control_cont)
@@ -198,7 +219,7 @@ class ControlPanel:
         
     def on_power_clicked(self, evt):
         # 声明使用全局变量
-        global is_power_on, mqtt_client
+        global is_power_on, mqtt_client, power_on_time
         
         # 获取触发事件的按钮对象
         btn = evt.get_target()
@@ -210,6 +231,12 @@ class ControlPanel:
             
             # 根据电源状态显示或隐藏温度控制容器
             if is_power_on:
+                # 记录开机时间
+                power_on_time = time.time()
+                # 显示开机时间标签
+                self.power_time_label.clear_flag(lv.obj.FLAG.HIDDEN)
+                self.update_power_time(None)  # 立即更新显示
+                
                 # 创建展开动画
                 self.temp_cont.clear_flag(lv.obj.FLAG.HIDDEN)  # 先显示容器
                 
@@ -229,6 +256,9 @@ class ControlPanel:
                 # 启动动画
                 lv.anim_t.start(anim)
             else:
+                # 隐藏开机时间标签
+                self.power_time_label.add_flag(lv.obj.FLAG.HIDDEN)
+                
                 # 创建折叠动画
                 anim = lv.anim_t()
                 anim.init()
@@ -301,14 +331,44 @@ class ControlPanel:
                 except Exception as e:
                     self.show_status("Send failed")
     
+    def update_power_time(self, timer):
+        global is_power_on, power_on_time
+        
+        # 只在开机状态下更新时间
+        if is_power_on:
+            # 计算已开机时间（秒）
+            elapsed = int(time.time() - power_on_time)
+            
+            # 转换为时:分:秒格式
+            hours = elapsed // 3600
+            minutes = (elapsed % 3600) // 60
+            seconds = elapsed % 60
+            
+            # 更新标签文本
+            if hours > 0:
+                time_text = "{:02d}:{:02d}:{:02d}".format(hours, minutes, seconds)
+            else:
+                time_text = "{:02d}:{:02d}".format(minutes, seconds)
+                
+            self.power_time_label.set_text(time_text)
+    
     def set_power_state(self, state):
+        global power_on_time
+        
         if state:
             self.power_btn.add_state(lv.STATE.CHECKED)
+            # 记录开机时间
+            power_on_time = time.time()
+            # 显示开机时间标签
+            self.power_time_label.clear_flag(lv.obj.FLAG.HIDDEN)
+            self.update_power_time(None)  # 立即更新显示
             # 显示温度控制容器
             self.temp_cont.clear_flag(lv.obj.FLAG.HIDDEN)
-            self.temp_cont.set_height(100)  # 恢复高度
+            self.temp_cont.set_height(160)  # 恢复高度
         else:
             self.power_btn.clear_state(lv.STATE.CHECKED)
+            # 隐藏开机时间标签
+            self.power_time_label.add_flag(lv.obj.FLAG.HIDDEN)
             # 隐藏温度控制容器
             self.temp_cont.add_flag(lv.obj.FLAG.HIDDEN)
             self.temp_cont.set_height(0)  # 设置高度为0
