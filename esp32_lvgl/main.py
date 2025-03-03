@@ -14,8 +14,11 @@ wifi_connected = False           # Wi-Fi连接状态
 power_on_time = 0                # 开机时间戳
 
 # ------------------------------ Wi-Fi和MQTT设置 ------------------------------
-WIFI_SSID = "office"             # Wi-Fi名称
-WIFI_PASSWORD = "gdzsam632"      # Wi-Fi密码
+# Wi-Fi配置列表
+WIFI_CONFIGS = [
+    {"ssid": "office", "password": "gdzsam632"},
+    {"ssid": "office_2.4", "password": "gdzsam632"}
+]
 MQTT_SERVER = "192.168.1.59"     # MQTT服务器地址
 MQTT_TOPIC = b"aircon"           # MQTT主题
 mqtt_client = None               # MQTT客户端实例
@@ -431,36 +434,155 @@ class ControlPanel:
                 lv.anim_t.start(anim_out)
                 self.last_status_time = 0  # 重置状态显示时间
 
-# ------------------------------ 网络管理类 ------------------------------
+# ------------------------------ 网络管理器类 ------------------------------
 class NetworkManager:
     def __init__(self, status_bar):
+        # 保存状态栏引用
         self.status_bar = status_bar
-        self.mqtt_client = None
         self.wlan = network.WLAN(network.STA_IF)
-        
+        self.mqtt_client = None
+        self.connected_ssid = None  # 记录已连接的SSID
+        self.connection_attempts = 0  # 连接尝试次数
+        self.last_connection_time = 0  # 上次连接尝试时间
+    
     def connect_wifi(self):
-        global wifi_connected
-        self.wlan.active(True)
-        if not self.wlan.isconnected():
-            self.status_bar.set_status("Connecting WiFi...")
-            self.wlan.connect(WIFI_SSID, WIFI_PASSWORD)
-            
-            retry = 0
-            while not self.wlan.isconnected() and retry < 20:
-                time.sleep(0.5)
-                retry += 1
-                dots = "." * (retry % 4)
-                self.status_bar.set_status(f"Connecting WiFi{dots}")
-                
-        if self.wlan.isconnected():
-            wifi_connected = True
-            self.status_bar.set_status("WiFi Connected")
-            self.status_bar.update_signal(self.wlan.status('rssi'))
-            return True
-        else:
-            wifi_connected = False
-            self.status_bar.set_status("WiFi Connection Failed")
+        # 记录当前时间
+        current_time = time.time()
+        
+        # 如果短时间内尝试次数过多，延迟重试
+        if self.connection_attempts > 5 and current_time - self.last_connection_time < 60:
+            if self.status_bar:
+                self.status_bar.set_status("WiFi retry in 60s...")
             return False
+        
+        # 更新连接尝试记录
+        self.connection_attempts += 1
+        self.last_connection_time = current_time
+        
+        # 确保WiFi接口已激活
+        if not self.wlan.active():
+            self.wlan.active(True)
+            time.sleep(1)  # 等待接口激活
+        
+        # 如果已连接，先断开
+        if self.wlan.isconnected():
+            self.wlan.disconnect()
+            time.sleep(1)  # 等待断开连接
+        
+        # 更新状态栏
+        if self.status_bar:
+            self.status_bar.set_status("Scanning WiFi...")
+        
+        # 扫描可用网络
+        try:
+            networks = self.wlan.scan()
+            print(f"扫描到 {len(networks)} 个WiFi网络")
+        except Exception as e:
+            print("WiFi扫描失败:", str(e))
+            if self.status_bar:
+                self.status_bar.set_status("WiFi scan failed")
+            networks = []
+        
+        # 创建SSID到信号强度的映射
+        available_networks = {}
+        for net in networks:
+            try:
+                ssid = net[0].decode('utf-8')
+                rssi = net[3]
+                available_networks[ssid] = rssi
+                print(f"找到网络: {ssid}, 信号强度: {rssi} dBm")
+            except:
+                pass  # 忽略无法解码的SSID
+        
+        # 按信号强度排序我们的配置网络
+        sorted_configs = []
+        for config in WIFI_CONFIGS:
+            ssid = config["ssid"]
+            if ssid in available_networks:
+                sorted_configs.append({
+                    "ssid": ssid,
+                    "password": config["password"],
+                    "rssi": available_networks[ssid]
+                })
+        
+        # 如果没有找到任何已知网络
+        if not sorted_configs:
+            print("未找到任何已配置的WiFi网络")
+            if self.status_bar:
+                self.status_bar.set_status("No known WiFi found")
+            return False
+        
+        # 按信号强度从高到低排序
+        sorted_configs.sort(key=lambda x: x["rssi"], reverse=True)
+        
+        # 尝试连接信号最强的网络
+        connected = False
+        for config in sorted_configs:
+            ssid = config["ssid"]
+            password = config["password"]
+            rssi = config["rssi"]
+            
+            if self.status_bar:
+                self.status_bar.set_status(f"Connecting to {ssid}...")
+            
+            print(f"尝试连接到 {ssid} (信号强度: {rssi} dBm)")
+            try:
+                # 连接WiFi
+                self.wlan.connect(ssid, password)
+                
+                # 等待连接或超时
+                max_wait = 15  # 增加等待时间
+                while max_wait > 0:
+                    if self.wlan.isconnected():
+                        connected = True
+                        self.connected_ssid = ssid
+                        break
+                    max_wait -= 1
+                    if self.status_bar:
+                        self.status_bar.set_status(f"Connecting to {ssid}... {max_wait}s")
+                    time.sleep(1)
+                
+                if connected:
+                    # 获取IP地址
+                    ip = self.wlan.ifconfig()[0]
+                    print(f"已连接到 {ssid}, IP: {ip}")
+                    
+                    # 更新全局WiFi连接状态
+                    global wifi_connected
+                    wifi_connected = True
+                    
+                    # 重置连接尝试计数
+                    self.connection_attempts = 0
+                    
+                    if self.status_bar:
+                        self.status_bar.set_status(f"Connected: {ssid}")
+                        # 更新信号强度显示
+                        self.status_bar.update_signal(rssi)
+                    break
+                else:
+                    print(f"连接到 {ssid} 超时")
+                    # 确保断开连接
+                    self.wlan.disconnect()
+                    time.sleep(1)
+            except Exception as e:
+                print(f"连接到 {ssid} 失败: {str(e)}")
+                # 确保断开连接
+                try:
+                    self.wlan.disconnect()
+                except:
+                    pass
+                time.sleep(1)
+        
+        # 如果所有网络都连接失败
+        if not connected:
+            print("无法连接到任何已知网络")
+            # 更新全局WiFi连接状态
+            global wifi_connected
+            wifi_connected = False
+            if self.status_bar:
+                self.status_bar.set_status("No WiFi Connection")
+        
+        return connected
     
     def connect_mqtt(self):
         global mqtt_client
@@ -529,14 +651,49 @@ class NetworkManager:
     def check_connections(self):
         # 检查WiFi连接
         if not self.wlan.isconnected():
-            self.connect_wifi()
-            return  # 如果WiFi重连，等待下一次检查再连MQTT
+            # 如果WiFi断开，尝试重新连接
+            if self.status_bar:
+                self.status_bar.set_status("WiFi Reconnecting...")
             
-        # 检查MQTT连接
-        if wifi_connected and (self.mqtt_client is None):
-            time.sleep(1)  # 添加短暂延时
-            self.connect_mqtt()
-
+            # 更新全局WiFi连接状态
+            global wifi_connected
+            wifi_connected = False
+            
+            # 尝试重新连接WiFi
+            wifi_connected = self.connect_wifi()
+            
+            # 如果WiFi重新连接成功，尝试重新连接MQTT
+            if wifi_connected and not self.mqtt_client:
+                self.connect_mqtt()
+            elif not wifi_connected:
+                # 清除MQTT客户端
+                self.mqtt_client = None
+        else:
+            # 更新全局WiFi连接状态
+            global wifi_connected
+            wifi_connected = True
+            
+            # WiFi已连接，检查信号强度
+            try:
+                # 获取当前连接的信号强度
+                current_rssi = self.wlan.status('rssi')
+                
+                # 更新状态栏信号强度显示
+                if self.status_bar:
+                    # 确保状态栏显示连接状态
+                    if self.connected_ssid:
+                        self.status_bar.set_status(f"Connected: {self.connected_ssid}")
+                    else:
+                        self.status_bar.set_status("WiFi Connected")
+                    # 更新信号强度
+                    self.status_bar.update_signal(current_rssi)
+                
+                # 检查MQTT连接
+                if not self.mqtt_client:
+                    self.connect_mqtt()
+            except Exception as e:
+                print("获取WiFi状态失败:", str(e))
+                
 # ------------------------------ 主程序 ------------------------------
 def main():
     # 初始化GPIO16引脚为输出模式
@@ -577,19 +734,25 @@ def main():
         swap_xy=True       # 交换X和Y坐标
     )
 
-    # 创建网络管理器实例，暂时不传入状态栏引用
-    network_manager = NetworkManager(None)
-    
     # 创建主界面
     main_screen = MainScreen()
     
-    # 更新网络管理器的状态栏引用，使其能够显示网络状态
-    network_manager.status_bar = main_screen.status_bar
+    # 创建网络管理器实例，传入状态栏引用
+    network_manager = NetworkManager(main_screen.status_bar)
     
-    # 连接WiFi网络
-    network_manager.connect_wifi()
-    # 连接MQTT服务器
-    network_manager.connect_mqtt()
+    # 连接WiFi网络 - 增加重试逻辑
+    wifi_connected = False
+    retry_count = 0
+    
+    while not wifi_connected and retry_count < 3:
+        wifi_connected = network_manager.connect_wifi()
+        if not wifi_connected:
+            retry_count += 1
+            time.sleep(2)  # 短暂延时后重试
+    
+    # 如果WiFi连接成功，尝试连接MQTT
+    if wifi_connected:
+        network_manager.connect_mqtt()
 
     # 初始化主循环计时器
     last_wifi_check = 0    # 上次WiFi检查时间
