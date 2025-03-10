@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>青萍传感器数据监控</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+        body {
+            padding-top: 20px;
+            background-color: #f5f5f5;
+        }
+        .card {
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .card-header {
+            background-color: #4a6fa5;
+            color: white;
+            font-weight: bold;
+        }
+        .data-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        .timestamp {
+            color: #666;
+            font-size: 0.9rem;
+        }
+        .hex-data {
+            font-family: monospace;
+            word-break: break-all;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .refresh-btn {
+            margin-bottom: 20px;
+        }
+        .sensor-icon {
+            font-size: 2rem;
+            margin-right: 10px;
+        }
+        .history-table {
+            font-size: 0.9rem;
+        }
+        .history-table th {
+            background-color: #4a6fa5;
+            color: white;
+        }
+        .alert-info {
+            background-color: #e3f2fd;
+            border-color: #b3e5fc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row mb-4">
+            <div class="col-12">
+                <h1 class="text-center">青萍传感器数据监控</h1>
+                <p class="text-center text-muted">实时显示MQTT主题 "qingping/up" 接收到的数据</p>
+            </div>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-12">
+                <button id="refreshBtn" class="btn btn-primary refresh-btn">
+                    <i class="bi bi-arrow-clockwise"></i> 刷新数据
+                </button>
+                <div id="connectionStatus" class="alert alert-info">
+                    正在连接到服务器...
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-thermometer-half sensor-icon"></i>最新传感器数据
+                    </div>
+                    <div class="card-body">
+                        <div id="latestData">
+                            <div class="text-center">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">加载中...</span>
+                                </div>
+                                <p>加载数据中...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-code-square sensor-icon"></i>原始十六进制数据
+                    </div>
+                    <div class="card-body">
+                        <div id="rawData" class="hex-data">
+                            等待数据...
+                        </div>
+                        <div class="mt-2">
+                            <small class="text-muted">最后更新时间: <span id="lastUpdateTime">-</span></small>
+                        </div>
+                        <div class="mt-3">
+                            <h6>解析详情:</h6>
+                            <pre id="parseDetails" class="bg-light p-2 rounded" style="font-size: 0.8rem;">等待数据...</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-clock-history sensor-icon"></i>历史数据记录
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover history-table">
+                                <thead>
+                                    <tr>
+                                        <th>时间</th>
+                                        <th>温度 (°C)</th>
+                                        <th>湿度 (%)</th>
+                                        <th>气压 (hPa)</th>
+                                        <th>电池 (%)</th>
+                                        <th>原始数据</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="historyTableBody">
+                                    <tr>
+                                        <td colspan="6" class="text-center">暂无数据</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            // 初始化
+            fetchLatestData();
+            fetchHistoryData();
+            
+            // 设置定时刷新（每5秒）
+            setInterval(function() {
+                fetchLatestData();
+                fetchHistoryData();
+            }, 5000);
+            
+            // 刷新按钮点击事件
+            document.getElementById('refreshBtn').addEventListener('click', function() {
+                fetchLatestData();
+                fetchHistoryData();
+                
+                // 显示刷新动画
+                this.disabled = true;
+                this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 刷新中...';
+                
+                // 1秒后恢复按钮状态
+                setTimeout(() => {
+                    this.disabled = false;
+                    this.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 刷新数据';
+                }, 1000);
+            });
+        });
+        
+        // 获取最新数据
+        function fetchLatestData() {
+            fetch('/api/latest')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('网络响应异常');
+                    }
+                    document.getElementById('connectionStatus').innerHTML = '已连接到服务器，数据正常接收中';
+                    document.getElementById('connectionStatus').className = 'alert alert-success';
+                    return response.json();
+                })
+                .then(data => {
+                    if (Object.keys(data).length === 0) {
+                        document.getElementById('latestData').innerHTML = '<p class="text-center">暂无数据</p>';
+                        document.getElementById('rawData').innerHTML = '等待数据...';
+                        document.getElementById('lastUpdateTime').textContent = '-';
+                        return;
+                    }
+                    
+                    updateLatestDataDisplay(data);
+                })
+                .catch(error => {
+                    console.error('获取数据失败:', error);
+                    document.getElementById('connectionStatus').innerHTML = '连接服务器失败: ' + error.message;
+                    document.getElementById('connectionStatus').className = 'alert alert-danger';
+                });
+        }
+        
+        // 获取历史数据
+        function fetchHistoryData() {
+            fetch('/api/data')
+                .then(response => response.json())
+                .then(data => {
+                    updateHistoryTable(data);
+                })
+                .catch(error => {
+                    console.error('获取历史数据失败:', error);
+                });
+        }
+        
+        // 更新最新数据显示
+        function updateLatestDataDisplay(data) {
+            const parsedData = data.parsed_data;
+            const timestamp = data.timestamp;
+            const hexData = data.hex_data;
+            
+            // 显示原始十六进制数据
+            document.getElementById('rawData').innerHTML = hexData;
+            document.getElementById('lastUpdateTime').textContent = new Date(timestamp * 1000).toLocaleString();
+            
+            // 显示解析详情
+            let parseDetails = '';
+            if (parsedData._raw_hex) {
+                parseDetails += `原始十六进制: ${parsedData._raw_hex}\n`;
+            }
+            
+            // 显示解析的键值对
+            if (parsedData._keys) {
+                parseDetails += `\n解析的键值对:\n`;
+                for (const [key, value] of Object.entries(parsedData._keys)) {
+                    parseDetails += `${key}: ${value}\n`;
+                }
+                parseDetails += `\n`;
+            }
+            
+            // 添加温湿度解析详情
+            if (parsedData._combined_data !== undefined) {
+                parseDetails += `组合数据: 0x${parsedData._combined_data.toString(16).padStart(6, '0')}\n`;
+                parseDetails += `温度原始值: ${parsedData._temp_raw} (${((parsedData._temp_raw - 500) / 10).toFixed(1)}°C)\n`;
+                parseDetails += `湿度原始值: ${parsedData._humi_raw} (${(parsedData._humi_raw / 10).toFixed(1)}%)\n\n`;
+            } else if (parsedData.temperature !== undefined && parsedData.humidity !== undefined) {
+                // 温度原始值 = (显示温度 * 10) + 500
+                const tempRaw = Math.round((parsedData.temperature * 10) + 500);
+                // 湿度原始值 = 显示湿度 * 10
+                const humiRaw = Math.round(parsedData.humidity * 10);
+                
+                parseDetails += `温度: ${parsedData.temperature.toFixed(1)}°C (原始值: ${tempRaw})\n`;
+                parseDetails += `湿度: ${parsedData.humidity.toFixed(1)}% (原始值: ${humiRaw})\n`;
+                
+                // 计算组合值 (温度高12位，湿度低12位)
+                const combinedValue = (tempRaw << 12) | (humiRaw & 0xFFF);
+                parseDetails += `组合值: 0x${combinedValue.toString(16).padStart(6, '0')}\n`;
+                
+                // 小端序表示 (低字节在前)
+                const byte1 = combinedValue & 0xFF;
+                const byte2 = (combinedValue >> 8) & 0xFF;
+                const byte3 = (combinedValue >> 16) & 0xFF;
+                parseDetails += `小端序字节: [0x${byte1.toString(16).padStart(2, '0')}, 0x${byte2.toString(16).padStart(2, '0')}, 0x${byte3.toString(16).padStart(2, '0')}]\n`;
+                parseDetails += `十六进制表示: ${byte1.toString(16).padStart(2, '0')} ${byte2.toString(16).padStart(2, '0')} ${byte3.toString(16).padStart(2, '0')}\n`;
+            }
+            
+            // 显示键0x14解析的数据（如果有）
+            if (parsedData._0x14_combined_data !== undefined) {
+                parseDetails += `\n键0x14解析数据:\n`;
+                if (parsedData._timestamp !== undefined) {
+                    parseDetails += `时间戳: ${parsedData._timestamp}\n`;
+                }
+                parseDetails += `温度原始值: ${parsedData._0x14_temp_raw} (${((parsedData._0x14_temp_raw - 500) / 10).toFixed(1)}°C)\n`;
+                parseDetails += `湿度原始值: ${parsedData._0x14_humi_raw} (${(parsedData._0x14_humi_raw / 10).toFixed(1)}%)\n`;
+                parseDetails += `组合数据: 0x${parsedData._0x14_combined_data.toString(16).padStart(6, '0')}\n`;
+                
+                if (parsedData._0x14_pressure_raw !== undefined) {
+                    parseDetails += `气压原始值: ${parsedData._0x14_pressure_raw} (${(parsedData._0x14_pressure_raw / 100).toFixed(1)} hPa)\n`;
+                }
+                
+                if (parsedData._0x14_battery !== undefined) {
+                    parseDetails += `电池电量: ${parsedData._0x14_battery}%\n`;
+                }
+                
+                if (parsedData._0x14_rssi !== undefined) {
+                    parseDetails += `信号强度: ${parsedData._0x14_rssi} dBm\n`;
+                }
+                
+                if (parsedData._0x14_reserved !== undefined) {
+                    parseDetails += `保留字节: 0x${parsedData._0x14_reserved.toString(16).padStart(2, '0')}\n`;
+                }
+                
+                parseDetails += `\n`;
+            }
+            
+            // 显示气压信息（如果有）
+            if (parsedData.pressure !== null && parsedData.pressure !== undefined) {
+                const pressureRaw = Math.round(parsedData.pressure * 100);
+                parseDetails += `气压: ${parsedData.pressure.toFixed(1)} hPa (原始值: ${pressureRaw})\n`;
+                
+                // 小端序表示
+                const byte1 = pressureRaw & 0xFF;
+                const byte2 = (pressureRaw >> 8) & 0xFF;
+                parseDetails += `气压字节: [0x${byte1.toString(16).padStart(2, '0')}, 0x${byte2.toString(16).padStart(2, '0')}]\n`;
+            }
+            
+            // 显示电池信息
+            if (parsedData.battery !== undefined) {
+                parseDetails += `电池电量: ${parsedData.battery}%\n`;
+            }
+            
+            // 显示信号强度（如果有）
+            if (parsedData.rssi !== undefined) {
+                parseDetails += `信号强度: ${parsedData.rssi} dBm\n`;
+            }
+            
+            // 显示错误信息（如果有）
+            if (parsedData.error) {
+                parseDetails += `错误: ${parsedData.error}\n`;
+            }
+            
+            document.getElementById('parseDetails').textContent = parseDetails;
+            
+            let html = '<div class="row">';
+            
+            // 温度
+            html += `
+                <div class="col-6 col-md-4 mb-3">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-thermometer-half text-danger me-2" style="font-size: 1.5rem;"></i>
+                        <div>
+                            <div class="text-muted small">温度</div>
+                            <div class="data-value">${parsedData.temperature.toFixed(1)} °C</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 湿度
+            html += `
+                <div class="col-6 col-md-4 mb-3">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-droplet-half text-primary me-2" style="font-size: 1.5rem;"></i>
+                        <div>
+                            <div class="text-muted small">湿度</div>
+                            <div class="data-value">${parsedData.humidity.toFixed(1)} %</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 气压
+            if (parsedData.pressure !== null) {
+                html += `
+                    <div class="col-6 col-md-4 mb-3">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-speedometer2 text-success me-2" style="font-size: 1.5rem;"></i>
+                            <div>
+                                <div class="text-muted small">气压</div>
+                                <div class="data-value">${parsedData.pressure.toFixed(1)} hPa</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 电池电量
+            if (parsedData.battery !== undefined) {
+                html += `
+                    <div class="col-6 col-md-4 mb-3">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-battery-half text-warning me-2" style="font-size: 1.5rem;"></i>
+                            <div>
+                                <div class="text-muted small">电池</div>
+                                <div class="data-value">${parsedData.battery} %</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 信号强度
+            if (parsedData.rssi !== undefined) {
+                html += `
+                    <div class="col-6 col-md-4 mb-3">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-reception-4 text-info me-2" style="font-size: 1.5rem;"></i>
+                            <div>
+                                <div class="text-muted small">信号</div>
+                                <div class="data-value">${parsedData.rssi} dBm</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 其他可能的传感器数据
+            const additionalSensors = [
+                { key: 'co2', name: 'CO₂', icon: 'cloud', unit: 'ppm', color: 'secondary' },
+                { key: 'pm25', name: 'PM2.5', icon: 'cloud-haze', unit: 'μg/m³', color: 'info' },
+                { key: 'pm10', name: 'PM10', icon: 'cloud-haze2', unit: 'μg/m³', color: 'info' },
+                { key: 'tvoc', name: 'TVOC', icon: 'wind', unit: 'ppb', color: 'dark' },
+                { key: 'noise', name: '噪音', icon: 'volume-up', unit: 'dB', color: 'warning' },
+                { key: 'lumen', name: '光照', icon: 'brightness-high', unit: 'lux', color: 'warning' },
+                { key: 'rssi', name: '信号强度', icon: 'reception-4', unit: 'dBm', color: 'success' }
+            ];
+            
+            additionalSensors.forEach(sensor => {
+                if (parsedData[sensor.key] !== null && parsedData[sensor.key] !== undefined) {
+                    html += `
+                        <div class="col-6 col-md-4 mb-3">
+                            <div class="d-flex align-items-center">
+                                <i class="bi bi-${sensor.icon} text-${sensor.color} me-2" style="font-size: 1.5rem;"></i>
+                                <div>
+                                    <div class="text-muted small">${sensor.name}</div>
+                                    <div class="data-value">${typeof parsedData[sensor.key] === 'number' ? parsedData[sensor.key].toFixed(1) : parsedData[sensor.key]} ${sensor.unit}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+            
+            html += '</div>';
+            
+            // 更新DOM
+            document.getElementById('latestData').innerHTML = html;
+        }
+        
+        // 更新历史数据表格
+        function updateHistoryTable(data) {
+            if (!data || data.length === 0) {
+                document.getElementById('historyTableBody').innerHTML = '<tr><td colspan="6" class="text-center">暂无数据</td></tr>';
+                return;
+            }
+            
+            let html = '';
+            data.forEach(record => {
+                const parsedData = record.parsed_data;
+                html += `<tr>
+                    <td>${record.timestamp}</td>
+                    <td>${parsedData.temperature ? parsedData.temperature.toFixed(1) : '-'}</td>
+                    <td>${parsedData.humidity ? parsedData.humidity.toFixed(1) : '-'}</td>
+                    <td>${parsedData.pressure ? parsedData.pressure.toFixed(1) : '-'}</td>
+                    <td>${parsedData.battery !== undefined ? parsedData.battery : '-'}</td>
+                    <td><code>${record.hex_data.substring(0, 20)}${record.hex_data.length > 20 ? '...' : ''}</code></td>
+                </tr>`;
+            });
+            
+            document.getElementById('historyTableBody').innerHTML = html;
+        }
+        
+        // 格式化十六进制数据显示
+        function formatHexData(hexString) {
+            if (!hexString) return '等待数据...';
+            
+            // 每两个字符添加一个空格，每16个字节换行
+            let formatted = '';
+            for (let i = 0; i < hexString.length; i += 2) {
+                formatted += hexString.substr(i, 2) + ' ';
+                if ((i + 2) % 32 === 0 && i !== 0) formatted += '<br>';
+            }
+            return formatted;
+        }
+    </script>
+</body>
+</html> 
