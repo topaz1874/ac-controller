@@ -150,3 +150,80 @@ MIT License
 ## 配置说明
 
 1. WiFi 设置（esp32_lvgl/main.py）
+
+## API 指令集使用说明
+
+### MQTT 主题
+- 控制指令发送到: `stickc/aircon`
+- 状态反馈接收自: `stickc/up`
+
+### 控制指令
+| 指令 | 说明 | 示例 |
+|------|------|------|
+| `api/power/on` | 开机 | `mosquitto_pub -t stickc/aircon -m "api/power/on"` |
+| `api/power/off` | 关机 | `mosquitto_pub -t stickc/aircon -m "api/power/off"` |
+| `api/temp/XX` | 设置温度(16-30) | `mosquitto_pub -t stickc/aircon -m "api/temp/25"` |
+| `api/status` | 查询当前状态 | `mosquitto_pub -t stickc/aircon -m "api/status"` |
+
+### 状态反馈
+设备会通过 `stickc/up` 主题发送 JSON 格式的状态信息：
+
+1. 设备上线消息:
+```json
+{"device":"stickc","status":"online"}
+```
+
+2. 状态更新消息:
+```json
+{"status":"on","temp":25}
+```
+或
+```json
+{"status":"off","temp":25}
+```
+
+### 网页集成示例
+```javascript
+// 连接MQTT服务器
+const client = mqtt.connect('ws://your-mqtt-broker:9001');
+
+// 订阅状态反馈主题
+client.subscribe('stickc/up');
+
+// 监听状态更新
+client.on('message', (topic, message) => {
+  if (topic === 'stickc/up') {
+    const status = JSON.parse(message.toString());
+    updateUI(status);
+  }
+});
+
+// 发送控制命令
+function powerOn() {
+  client.publish('stickc/aircon', 'api/power/on');
+}
+
+function powerOff() {
+  client.publish('stickc/aircon', 'api/power/off');
+}
+
+function setTemperature(temp) {
+  client.publish('stickc/aircon', `api/temp/${temp}`);
+}
+
+function queryStatus() {
+  client.publish('stickc/aircon', 'api/status');
+}
+```
+```
+
+主要改进：
+
+1. 使用常量定义 API 指令，便于维护和修改
+2. 为每个 API 指令添加详细注释
+3. 添加了 README 部分，详细说明 API 使用方法
+4. 提供了 MQTT 命令行示例
+5. 提供了网页集成示例代码
+6. 详细说明了 JSON 格式的状态反馈
+
+这样的文档和代码注释使得 API 更易于理解和使用，特别是对于网页开发者来说。

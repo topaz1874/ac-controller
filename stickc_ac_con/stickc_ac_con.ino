@@ -27,9 +27,21 @@ const char* ssid = "office";       // Wi-Fi名称
 const char* password = "gdzsam632"; // Wi-Fi密码
 
 // MQTT服务器设置
-const char* mqtt_server = "192.168.1.59"; // MQTT服务器地址
-const char* mqtt_topic = "aircon";        // MQTT主题
-const int mqtt_port = 1883;               // MQTT端口
+const char* mqtt_server = "192.168.1.59";     // MQTT服务器地址
+const char* mqtt_sub_topic = "stickc/aircon"; // MQTT订阅主题
+const char* mqtt_pub_topic = "stickc/up";     // MQTT发布主题
+const int mqtt_port = 1883;                   // MQTT端口
+
+// API指令集定义
+// 控制指令 (发送到 stickc/aircon 主题)
+const char* API_POWER_ON = "api/power/on";    // 开机指令
+const char* API_POWER_OFF = "api/power/off";  // 关机指令
+const char* API_TEMP_PREFIX = "api/temp/";    // 温度设置指令前缀，后跟温度值(16-30)
+const char* API_STATUS = "api/status";        // 状态查询指令
+
+// 状态反馈 (发送到 stickc/up 主题)
+// 设备上线: {"device":"stickc","status":"online"}
+// 电源状态: {"status":"on|off","temp":当前温度}
 
 // 创建网络客户端实例
 WiFiClient espClient;              // Wi-Fi客户端实例
@@ -134,37 +146,47 @@ void callback(char* topic, byte* payload, unsigned int length) {
     message += (char)payload[i];
   }
   
-  // 处理开机命令：如果收到"on"且当前是关机状态
-  if (message == "on" && !isPowerOn) {
+  // 处理API命令
+  if (message == API_POWER_ON && !isPowerOn) {
+    // 开机命令: api/power/on
     isPowerOn = true;                   // 更新开关状态为开机
     sendCommand(currentTemp);           // 发送红外开机命令，使用当前温度
-    client.publish(mqtt_topic, "stickc send on");   // 发送MQTT确认消息
+    client.publish(mqtt_pub_topic, "{\"status\":\"on\",\"temp\":" + String(currentTemp) + "}");
     breatheLEDOn();                     // 开机呼吸灯效果
     beepFeedback();                     // 蜂鸣器提示音
     updateDisplay();                    // 更新显示屏内容
   } 
-  // 处理关机命令：如果收到"off"且当前是开机状态
-  else if (message == "off" && isPowerOn) {
+  // 处理关机命令
+  else if (message == API_POWER_OFF && isPowerOn) {
+    // 关机命令: api/power/off
     isPowerOn = false;                  // 更新开关状态为关机
     sendCommand(currentTemp);           // 发送红外关机命令，使用当前温度
-    client.publish(mqtt_topic, "stickc send off");  // 发送MQTT确认消息
-    breatheLEDOff();                     // 关机呼吸灯效果
+    client.publish(mqtt_pub_topic, "{\"status\":\"off\",\"temp\":" + String(currentTemp) + "}");
+    breatheLEDOff();                    // 关机呼吸灯效果
     beepFeedback();                     // 蜂鸣器提示音
     updateDisplay();                    // 更新显示屏内容
   }
-  // 处理温度设置命令：检查消息是否以"set "开头
-  else if (message.startsWith("set ")) {
-    String tempStr = message.substring(4);  // 从第4个字符开始提取温度值
+  // 处理温度设置命令
+  else if (message.startsWith(API_TEMP_PREFIX)) {
+    // 温度设置命令: api/temp/XX (XX为16-30之间的温度值)
+    String tempStr = message.substring(strlen(API_TEMP_PREFIX));  // 提取温度值
     int temp = tempStr.toInt();            // 将字符串转换为整数
     if (temp >= 16 && temp <= 30) {        // 检查温度是否在有效范围内（16-30度）
       currentTemp = temp;                   // 更新当前温度值
       sendCommand(currentTemp);             // 发送红外温度设置命令
-      breatheLEDOn();                         // 温度设置使用开机效果
-      client.publish(mqtt_topic, 
-        String("stickc send temp:" + String(currentTemp)).c_str());  // 发送确认消息
+      breatheLEDOn();                       // 温度设置使用开机效果
+      client.publish(mqtt_pub_topic, 
+        "{\"status\":\"" + String(isPowerOn ? "on" : "off") + "\",\"temp\":" + String(currentTemp) + "}");
       beepFeedback();                       // 蜂鸣器提示音
       updateDisplay();                      // 更新显示屏内容
     }
+  }
+  // 处理状态查询命令
+  else if (message == API_STATUS) {
+    // 状态查询命令: api/status
+    // 返回JSON格式的当前状态
+    client.publish(mqtt_pub_topic, 
+      "{\"status\":\"" + String(isPowerOn ? "on" : "off") + "\",\"temp\":" + String(currentTemp) + "\"}");
   }
 }
 
@@ -175,7 +197,9 @@ void connectMQTT() {
     clientId += String(random(0xffff), HEX);
     
     if (client.connect(clientId.c_str())) {     // 尝试连接
-      client.subscribe(mqtt_topic);              // 订阅主题
+      client.subscribe(mqtt_sub_topic);         // 订阅主题
+      // 发送上线消息，JSON格式
+      client.publish(mqtt_pub_topic, "{\"device\":\"stickc\",\"status\":\"online\"}");
     } else {
       delay(5000);                              // 连接失败等待5秒
     }
@@ -345,11 +369,14 @@ void handleButton() {
   if (M5.BtnA.wasPressed()) {  // 如果按下按钮A
     isPowerOn = !isPowerOn;    // 切换电源状态
     if (isPowerOn) {
-      client.publish(mqtt_topic, "stickc send on");
+      // 发送开机状态更新
+      client.publish(mqtt_pub_topic, "{\"status\":\"on\",\"temp\":" + String(currentTemp) + "}");
       sendCommand(currentTemp);  // 开机时发送当前温度设置
       breatheLEDOn();           // 开机呼吸灯效果
     } else {
-      client.publish(mqtt_topic, "stickc send off");
+      // 发送关机状态更新
+      client.publish(mqtt_pub_topic, "{\"status\":\"off\",\"temp\":" + String(currentTemp) + "}");
+      sendCommand(currentTemp);
       breatheLEDOff();          // 关机呼吸灯效果
     }
     beepFeedback();           // 蜂鸣器提示音
@@ -361,7 +388,9 @@ void handleButton() {
       currentTemp++;           // 增加温度
       if (currentTemp > 30) currentTemp = 16;  // 温度循环
       sendCommand(currentTemp);
-      client.publish(mqtt_topic, String("stickc send temp:" + String(currentTemp)).c_str());
+      // 发送温度更新状态
+      client.publish(mqtt_pub_topic, 
+        "{\"status\":\"on\",\"temp\":" + String(currentTemp) + "}");
       breatheLEDOn();         // 温度调节使用开机效果
       beepFeedback();        // 蜂鸣器提示音
       updateDisplay();       // 更新显示
