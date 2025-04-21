@@ -36,3 +36,4 @@ config.py
 *.pdf
 *.java
 *.go
+论文*.md
