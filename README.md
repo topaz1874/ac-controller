@@ -8,10 +8,12 @@
 - 🌡️ 温度控制 (16-30°C)
 - 💡 电源开关控制
 - 📡 MQTT 远程控制
-- 📶 WiFi 连接状态显示
-- 🔄 自动重连机制
+- 📶 智能Wi-Fi选择（自动连接信号最强的网络）
+- 🔄 自动重连和重启机制
 - 🎯 红外发射精确控制
-- 🚦 LED状态指示
+- 📊 温度延迟发送功能
+- 🔍 调试模式支持
+- 🔋 长按重启功能
 
 ## 硬件要求
 
@@ -22,11 +24,12 @@
 
 ## 软件依赖
 
-- MicroPython 1.19.1+
-- **LVGL 9.0**
-- MQTT 客户端库
-- ili9488 显示驱动
-- ft6x36 触摸驱动
+- Arduino IDE 1.8.13+
+- ESP32 Arduino 核心库
+- M5StickC Plus 库
+- IRremoteESP8266 库
+- PubSubClient MQTT 客户端库
+- WiFi 库
 
 ## 目录结构
 
@@ -43,79 +46,108 @@
     └── README.md          # 接收器说明
 ```
 
-## 版本控制
+## 新增功能说明
 
-### Git 仓库结构
+### 智能Wi-Fi选择
+- 开机自动扫描可用网络
+- 检测 "office" 和 "office_2.4" 的信号强度
+- 自动连接信号最强的网络
+- 如果连接失败，会尝试连接另一个网络
 
-- `main`: 稳定发布版本
-- `develop`: 日常开发分支
-- `feature/*`: 新功能开发分支
-  - feature/touch-control: 触摸屏控制功能
-  - feature/ir-control: 红外控制功能
-  - feature/mqtt: MQTT通信功能
-- `hotfix/*`: 紧急问题修复分支
+### 温度延迟发送
+- 按下按钮B增加温度设置
+- 屏幕实时显示将要设置的温度
+- 按键操作后等待1秒
+- 若1秒内无新操作，发送设置命令
+- 避免频繁发送指令，提高用户体验
 
-### 开发工作流
+### 调试模式
+- 默认开启，可在代码中修改
+- 连接串口后，所有操作会输出到串口
+- 包括MQTT消息、红外指令、错误信息等
+- 波特率为115200
+- 便于问题排查和开发调试
 
-1. 克隆仓库
-```bash
-git clone https://github.com/topaz1874/ac-controller.git
-cd ac-controller
-```
-
-2. 创建功能分支
-```bash
-git checkout -b feature/new-feature develop
-```
-
-3. 提交更改
-```bash
-git add .
-git commit -m "feat: add new feature"
-```
-
-4. 合并到开发分支
-```bash
-git checkout develop
-git merge --no-ff feature/new-feature
-```
-
-5. 发布版本
-```bash
-git checkout main
-git merge --no-ff develop
-git tag -a v1.0.0 -m "version 1.0.0"
-```
+### 长按重启
+- 长按按钮A 2秒以上会重启设备
+- 短按按钮A 正常切换电源开关
+- Wi-Fi连接超时1分钟后自动重启
+- 提供简单的恢复方式，无需重新烧录
 
 ## 使用说明
 
-1. 开机后自动连接 WiFi 和 MQTT 服务器
+1. 开机后自动连接信号最强的WiFi网络
 2. 等待连接成功，控件自动启用
-3. 使用触摸屏进行控制：
-   - 左上角开关按钮控制电源
-   - 滑块调节温度
-   - SET 按钮确认设置
-4. 观察LED指示：
-   - 开机/温度调节：呼吸渐变效果
-   - 关机：快速双闪
+3. 按键操作：
+   - 短按按钮A：切换空调开关
+   - 长按按钮A (2秒以上)：重启设备
+   - 按钮B：增加温度，1秒后发送命令
+4. 温度控制：
+   - 按下按钮B增加温度(16-30°C循环)
+   - 屏幕实时显示"Set to: XX°C"
+   - 1秒后发送到空调
+5. MQTT状态反馈：
+   - 每次操作后都会发送当前状态
+   - 上电后自动发送上线消息
+   - 调试模式下串口会显示所有消息
 
+## API 指令集使用说明
+
+### MQTT 主题
+- 控制指令发送到: `stickc/aircon`
+- 状态反馈接收自: `stickc/up`
+
+### 控制指令
+| 指令 | 说明 | 示例 |
+|------|------|------|
+| `api/power/on` | 开机 | `mosquitto_pub -t stickc/aircon -m "api/power/on"` |
+| `api/power/off` | 关机 | `mosquitto_pub -t stickc/aircon -m "api/power/off"` |
+| `api/temp/XX` | 设置温度(16-30) | `mosquitto_pub -t stickc/aircon -m "api/temp/25"` |
+| `api/status` | 查询当前状态 | `mosquitto_pub -t stickc/aircon -m "api/status"` |
+
+### 状态反馈
+设备会通过 `stickc/up` 主题发送 JSON 格式的状态信息：
+
+1. 设备上线消息:
+```json
+{"device":"stickc","status":"online"}
+```
+
+2. 状态更新消息:
+```json
+{"status":"on","temp":25}
+```
+或
+```json
+{"status":"off","temp":25}
+```
+
+### 调试模式使用
+1. 确保 `debugMode` 变量设置为 `true`
+2. 通过 USB 连接到电脑
+3. 打开串口监视器，设置波特率为 115200
+4. 所有操作都会输出到串口监视器
 
 ## 故障排除
 
-1. WiFi 连接问题
-   - 检查 SSID 和密码
-   - 确认 WiFi 信号强度
-   - 查看状态栏连接提示
+1. 设备无响应
+   - 长按按钮A 2秒以上重启设备
+   - 检查电源连接
 
-2. MQTT 连接问题
-   - 验证服务器地址
+2. WiFi 连接问题
+   - 检查 SSID 和密码是否正确
+   - 确认两个Wi-Fi网络至少有一个可用
+   - 若超过1分钟未连接，设备会自动重启
+
+3. MQTT 连接问题
+   - 验证服务器地址和端口
    - 检查网络连接
-   - 观察状态提示信息
+   - 查看串口调试信息
 
-3. 红外控制问题
-   - 确认发射器位置
-   - 检查空调接收角度
-   - 验证红外编码正确性
+4. 温度控制问题
+   - 确认红外发射器位置正确
+   - 检查空调接收器是否有遮挡
+   - 通过串口查看发送的命令细节
 
 ## 许可证
 

@@ -1,11 +1,11 @@
-#include <M5StickCPlus.h>
-#include <IRremoteESP8266.h>
-#include <IRsend.h>
-#include <WiFi.h>
-#include <PubSubClient.h>
+#include <M5StickCPlus.h>     // M5StickC Plus 库
+#include <IRremoteESP8266.h>   // 红外发射库
+#include <IRsend.h>            // 红外发送功能库
+#include <WiFi.h>              // Wi-Fi连接库
+#include <PubSubClient.h>      // MQTT客户端库
 
-const uint16_t kIrLed = 9;  // IR LED 在 GPIO9
-IRsend irsend(kIrLed);      // 设置IR发送对象
+const uint16_t kIrLed = 9;     // IR LED 在 GPIO9
+IRsend irsend(kIrLed);         // 设置IR发送对象
 
 // 格力空调协议常量定义
 const uint16_t kGreeBitMark = 620;      // 位标记持续时间（微秒）
@@ -16,62 +16,61 @@ const uint16_t kGreeHdrSpace = 4500;    // 头部空间持续时间
 const uint16_t kGreeGapSpace = 19980;   // 消息之间的间隔
 
 // 开机命令数据
-const uint8_t kGreePowerOnLength = 8;  // 命令长度（字节）
+const uint8_t kGreePowerOnLength = 8;   // 命令长度（字节）
 
 // 全局变量记录当前状态
-bool isPowerOn = false;
-uint8_t currentTemp = 25;  // 添加当前温度变量
+bool isPowerOn = false;                 // 电源开关状态
+uint8_t currentTemp = 25;               // 当前温度设置
+uint8_t tempToSend = 0;                 // 等待发送的温度值
+unsigned long tempSetTime = 0;          // 上次设置温度的时间
+const int TEMP_SEND_DELAY = 1000;       // 温度发送延迟(毫秒)
+bool tempChanged = false;               // 温度是否已修改
 
 // Wi-Fi连接参数
-const char* ssid1 = "office";        // 第一个Wi-Fi名称
-const char* ssid2 = "office_2.4";    // 第二个Wi-Fi名称
-const char* password = "gdzsam632";  // Wi-Fi密码
-const int WIFI_TIMEOUT = 60000;      // Wi-Fi连接超时时间(1分钟)
-unsigned long wifiStartTime = 0;     // Wi-Fi连接开始时间
+const char* ssid1 = "office";           // 第一个Wi-Fi名称
+const char* ssid2 = "office_2.4";       // 第二个Wi-Fi名称
+const char* password = "gdzsam632";     // Wi-Fi密码
+const int WIFI_TIMEOUT = 60000;         // Wi-Fi连接超时时间(1分钟)
+unsigned long wifiStartTime = 0;        // Wi-Fi连接开始时间
 
 // MQTT服务器设置
-const char* mqtt_server = "192.168.1.59";     // MQTT服务器地址
-const char* mqtt_sub_topic = "stickc/aircon"; // MQTT订阅主题
-const char* mqtt_pub_topic = "stickc/up";     // MQTT发布主题
-const int mqtt_port = 1883;                   // MQTT端口
+const char* mqtt_server = "192.168.1.59";      // MQTT服务器地址
+const char* mqtt_sub_topic = "stickc/aircon";  // MQTT订阅主题
+const char* mqtt_pub_topic = "stickc/up";      // MQTT发布主题
+const int mqtt_port = 1883;                    // MQTT端口
 
 // API指令集定义
 // 控制指令 (发送到 stickc/aircon 主题)
-const char* API_POWER_ON = "api/power/on";    // 开机指令
-const char* API_POWER_OFF = "api/power/off";  // 关机指令
-const char* API_TEMP_PREFIX = "api/temp/";    // 温度设置指令前缀，后跟温度值(16-30)
-const char* API_STATUS = "api/status";        // 状态查询指令
+const char* API_POWER_ON = "api/power/on";     // 开机指令
+const char* API_POWER_OFF = "api/power/off";   // 关机指令
+const char* API_TEMP_PREFIX = "api/temp/";     // 温度设置指令前缀，后跟温度值(16-30)
+const char* API_STATUS = "api/status";         // 状态查询指令
 
 // 状态反馈 (发送到 stickc/up 主题)
 // 设备上线: {"device":"stickc","status":"online"}
 // 电源状态: {"status":"on|off","temp":当前温度}
 
 // 创建网络客户端实例
-WiFiClient espClient;              // Wi-Fi客户端实例
-PubSubClient client(espClient);    // MQTT客户端实例
-
-// LED 控制相关定义
-const uint8_t LED_PIN = 10;      // LED引脚
-const uint8_t LED_CHANNEL = 0;   // LED使用的LEDC通道
-const double LED_FREQ = 5000;    // LED PWM频率
-const uint8_t LED_RESOLUTION = 8; // LED PWM分辨率（8位，0-255）
+WiFiClient espClient;                    // Wi-Fi客户端实例
+PubSubClient client(espClient);          // MQTT客户端实例
 
 // 按键长按检测
-const int LONG_PRESS_TIME = 2000;    // 长按时间阈值(2秒)
-unsigned long btnAPressTime = 0;     // 按钮A按下时间
-bool btnALongPressed = false;        // 按钮A是否长按
+const int LONG_PRESS_TIME = 2000;        // 长按时间阈值(2秒)
+unsigned long btnAPressTime = 0;         // 按钮A按下时间
+bool btnALongPressed = false;            // 按钮A是否长按
+
+// 调试模式设置
+bool debugMode = true;                  // 调试模式默认开启
 
 // 函数声明
-void sendCommand(uint8_t temperature = 25);  // 在文件开头声明函数
-void updateDisplay();
-void connectMQTT();
-void beepFeedback();
-void breatheLED();
-void breatheLEDOn();
-void breatheLEDOff();
-void connectToStrongestWiFi();
-void restartDevice();
-void publishMessage(const char* topic, const char* payload);
+void sendCommand(uint8_t temperature = 25);          // 发送红外命令
+void updateDisplay();                                // 更新显示屏
+void connectMQTT();                                  // 连接MQTT服务器
+void beepFeedback();                                 // 蜂鸣器反馈
+void connectToStrongestWiFi();                       // 连接信号最强的WiFi
+void restartDevice();                                // 重启设备
+void publishMessage(const char* topic, const char* payload); // 发布MQTT消息
+void checkAndSendTemp();                             // 检查并发送温度命令
 
 // 校验和计算函数
 uint8_t calculateChecksum(const uint8_t *block, uint16_t length) {
@@ -93,8 +92,8 @@ uint8_t calculateChecksum(const uint8_t *block, uint16_t length) {
 
 // 温度转换函数 (16-30度)
 uint8_t temperatureToByte(uint8_t temp) {
-  if (temp < 16) temp = 16;
-  if (temp > 30) temp = 30;
+  if (temp < 16) temp = 16;    // 最低温度限制
+  if (temp > 30) temp = 30;    // 最高温度限制
   return (temp - 16) & 0b1111;  // 0000 = 16度, 1110 = 30度
 }
 
@@ -113,54 +112,19 @@ void beepFeedback() {
   M5.Beep.mute();      // 停止蜂鸣
 }
 
-// LED 呼吸灯效果 - 开机（渐变）
-void breatheLEDOn() {
-  // 渐亮
-  for(int i = 0; i < 255; i++) {
-    ledcWrite(LED_CHANNEL, i);
-    delay(1);
-  }
-  
-  // 保持最亮
-  delay(100);
-  
-  // 渐暗
-  for(int i = 255; i >= 0; i--) {
-    ledcWrite(LED_CHANNEL, i);
-    delay(1);
-  }
-  
-  // 确保完全关闭
-  ledcWrite(LED_CHANNEL, 0);
-}
-
-// LED 呼吸灯效果 - 关机（快速闪烁两次）
-void breatheLEDOff() {
-  // 第一次闪烁
-  ledcWrite(LED_CHANNEL, 255);
-  delay(100);
-  ledcWrite(LED_CHANNEL, 0);
-  delay(100);
-  
-  // 第二次闪烁
-  ledcWrite(LED_CHANNEL, 255);
-  delay(100);
-  ledcWrite(LED_CHANNEL, 0);
-}
-
 // 连接信号最强的Wi-Fi网络
 void connectToStrongestWiFi() {
-  M5.Lcd.fillScreen(BLACK);
-  M5.Lcd.setCursor(0, 0);
-  M5.Lcd.println("Scanning WiFi...");
+  M5.Lcd.fillScreen(BLACK);                  // 清空屏幕
+  M5.Lcd.setCursor(0, 0);                    // 设置光标位置
+  M5.Lcd.println("Scanning WiFi...");        // 显示扫描信息
   
   // 记录开始连接时间
-  wifiStartTime = millis();
+  wifiStartTime = millis();                  // 记录当前时间
   
   // 扫描可用网络
-  int networksFound = WiFi.scanNetworks();
+  int networksFound = WiFi.scanNetworks();   // 开始Wi-Fi扫描
   
-  if (networksFound == 0) {
+  if (networksFound == 0) {                  // 如果没找到网络
     M5.Lcd.println("No networks found!");
     return;
   }
@@ -169,85 +133,112 @@ void connectToStrongestWiFi() {
   int rssi2 = -100;  // office_2.4 信号强度初始值
   
   // 查找目标网络的信号强度
-  for (int i = 0; i < networksFound; i++) {
-    if (WiFi.SSID(i) == ssid1) {
-      rssi1 = WiFi.RSSI(i);
+  for (int i = 0; i < networksFound; i++) {  // 遍历所有找到的网络
+    if (WiFi.SSID(i) == ssid1) {             // 检查是否是第一个目标网络
+      rssi1 = WiFi.RSSI(i);                  // 记录信号强度
       M5.Lcd.printf("%s: %d dBm\n", ssid1, rssi1);
     }
-    if (WiFi.SSID(i) == ssid2) {
-      rssi2 = WiFi.RSSI(i);
+    if (WiFi.SSID(i) == ssid2) {             // 检查是否是第二个目标网络
+      rssi2 = WiFi.RSSI(i);                  // 记录信号强度
       M5.Lcd.printf("%s: %d dBm\n", ssid2, rssi2);
     }
   }
   
   // 选择信号更强的网络
   const char* selectedSSID;
-  if (rssi1 > rssi2 && rssi1 > -90) {
+  if (rssi1 > rssi2 && rssi1 > -90) {        // 如果第一个网络信号更强
     selectedSSID = ssid1;
-  } else if (rssi2 > -90) {
+  } else if (rssi2 > -90) {                  // 如果第二个网络信号足够强
     selectedSSID = ssid2;
   } else {
     // 如果两个网络信号都很弱，选择第二个（优先office_2.4）
     selectedSSID = ssid2;
   }
   
-  M5.Lcd.printf("Connecting to %s\n", selectedSSID);
+  M5.Lcd.printf("Connecting to %s\n", selectedSSID); // 显示选择的网络
   
   // 连接选中的网络
-  WiFi.begin(selectedSSID, password);
+  WiFi.begin(selectedSSID, password);        // 开始连接Wi-Fi
   
   // 等待WiFi连接
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500);
-    M5.Lcd.print(".");
-    attempts++;
+  int attempts = 0;                          // 连接尝试次数
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) { // 等待连接或超时
+    delay(500);                              // 每500ms检查一次
+    M5.Lcd.print(".");                       // 显示进度
+    attempts++;                              // 增加尝试次数
   }
   
-  if (WiFi.status() == WL_CONNECTED) {
-    M5.Lcd.fillScreen(BLACK);
-    M5.Lcd.setCursor(0, 0);
-    M5.Lcd.print("WiFi connected");
-    M5.Lcd.setCursor(0, 20);
-    M5.Lcd.printf("SSID: %s\n", selectedSSID);
-    M5.Lcd.printf("RSSI: %d dBm\n", WiFi.RSSI());
-    M5.Lcd.printf("IP: %s\n", WiFi.localIP().toString().c_str());
-  } else {
+  if (WiFi.status() == WL_CONNECTED) {       // 如果连接成功
+    M5.Lcd.fillScreen(BLACK);                // 清空屏幕
+    M5.Lcd.setCursor(0, 0);                  // 重置光标位置
+    M5.Lcd.print("WiFi connected");          // 显示连接成功
+    M5.Lcd.setCursor(0, 20);                 // 移动光标
+    M5.Lcd.printf("SSID: %s\n", selectedSSID); // 显示连接的SSID
+    M5.Lcd.printf("RSSI: %d dBm\n", WiFi.RSSI()); // 显示信号强度
+    M5.Lcd.printf("IP: %s\n", WiFi.localIP().toString().c_str()); // 显示IP地址
+  } else {                                   // 如果连接失败
     M5.Lcd.println("\nConnection failed!");
     // 如果连接失败，尝试另一个网络
     const char* fallbackSSID = (selectedSSID == ssid1) ? ssid2 : ssid1;
     M5.Lcd.printf("Trying %s\n", fallbackSSID);
-    WiFi.begin(fallbackSSID, password);
+    WiFi.begin(fallbackSSID, password);      // 尝试备用网络
   }
 }
 
 // 重启设备
 void restartDevice() {
-  M5.Lcd.fillScreen(BLACK);
-  M5.Lcd.setCursor(0, 0);
-  M5.Lcd.println("Restarting...");
-  delay(1000);
-  ESP.restart();
+  M5.Lcd.fillScreen(BLACK);                  // 清空屏幕
+  M5.Lcd.setCursor(0, 0);                    // 设置光标位置
+  M5.Lcd.println("Restarting...");           // 显示重启信息
+  delay(1000);                               // 等待1秒
+  ESP.restart();                             // 重启设备
 }
 
 // 发布MQTT消息并打印调试信息
 void publishMessage(const char* topic, const char* payload) {
-  // 打印调试信息
-  M5.Lcd.fillScreen(BLACK);
-  M5.Lcd.setCursor(0, 0);
-  M5.Lcd.println("MQTT Publish:");
-  M5.Lcd.printf("Topic: %s\n", topic);
-  M5.Lcd.printf("Payload: %s\n", payload);
+  // 打印调试信息到屏幕
+  M5.Lcd.fillScreen(BLACK);                  // 清空屏幕
+  M5.Lcd.setCursor(0, 0);                    // 设置光标位置
+  M5.Lcd.println("MQTT Publish:");           // 显示发布标题
+  M5.Lcd.printf("Topic: %s\n", topic);       // 显示主题
+  M5.Lcd.printf("Payload: %s\n", payload);   // 显示内容
+  
+  // 如果开启调试模式且Serial可用，打印到Serial
+  if (debugMode && Serial) {
+    Serial.printf("MQTT Publish - Topic: %s, Payload: %s\n", topic, payload);
+  }
   
   // 发布消息
-  boolean result = client.publish(topic, payload);
+  boolean result = client.publish(topic, payload); // 发布MQTT消息
   
   // 显示发布结果
   M5.Lcd.printf("Result: %s\n", result ? "Success" : "Failed");
   
-  // 5秒后恢复正常显示
-  delay(2000);
-  updateDisplay();
+  // 如果开启调试模式且Serial可用，打印结果到Serial
+  if (debugMode && Serial) {
+    Serial.printf("Publish Result: %s\n", result ? "Success" : "Failed");
+  }
+  
+  // 2秒后恢复正常显示
+  delay(2000);                               // 等待2秒
+  updateDisplay();                           // 更新正常显示
+}
+
+// 检查并发送温度命令
+void checkAndSendTemp() {
+  // 如果温度发生变化且延迟时间已到
+  if (tempChanged && (millis() - tempSetTime >= TEMP_SEND_DELAY)) {
+    currentTemp = tempToSend;                // 更新当前温度为等待发送的温度
+    sendCommand(currentTemp);                // 发送温度命令
+    
+    // 发送温度更新状态
+    String payload = "{\"status\":\"" + String(isPowerOn ? "on" : "off") + 
+                    "\",\"temp\":" + String(currentTemp) + "}";
+    publishMessage(mqtt_pub_topic, payload.c_str()); // 发布更新后的状态
+    
+    tempChanged = false;                     // 重置温度变化标志
+    updateDisplay();                         // 更新显示
+  }
 }
 
 // MQTT消息回调函数 - 当收到MQTT消息时被调用
@@ -266,7 +257,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
     sendCommand(currentTemp);           // 发送红外开机命令，使用当前温度
     String payload = "{\"status\":\"on\",\"temp\":" + String(currentTemp) + "}";
     publishMessage(mqtt_pub_topic, payload.c_str());
-    breatheLEDOn();                     // 开机呼吸灯效果
     beepFeedback();                     // 蜂鸣器提示音
     updateDisplay();                    // 更新显示屏内容
   } 
@@ -277,7 +267,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
     sendCommand(currentTemp);           // 发送红外关机命令，使用当前温度
     String payload = "{\"status\":\"off\",\"temp\":" + String(currentTemp) + "}";
     publishMessage(mqtt_pub_topic, payload.c_str());
-    breatheLEDOff();                    // 关机呼吸灯效果
     beepFeedback();                     // 蜂鸣器提示音
     updateDisplay();                    // 更新显示屏内容
   }
@@ -289,7 +278,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
     if (temp >= 16 && temp <= 30) {        // 检查温度是否在有效范围内（16-30度）
       currentTemp = temp;                   // 更新当前温度值
       sendCommand(currentTemp);             // 发送红外温度设置命令
-      breatheLEDOn();                       // 温度设置使用开机效果
       String payload = "{\"status\":\"" + String(isPowerOn ? "on" : "off") + "\",\"temp\":" + String(currentTemp) + "}";
       publishMessage(mqtt_pub_topic, payload.c_str());
       beepFeedback();                       // 蜂鸣器提示音
@@ -327,47 +315,57 @@ void updateDisplay() {
   M5.Lcd.setCursor(0, 0);            // 将光标位置设置到屏幕左上角
   
   // 显示WiFi网络信息
-  M5.Lcd.printf("SSID: %s\n",        // 显示WiFi名称
-                ssid1);
-  M5.Lcd.printf("RSSI: %ddBm\n",     // 显示WiFi信号强度（分贝毫瓦）
-                WiFi.RSSI());
+  const char* currentSSID = WiFi.SSID().c_str(); // 获取当前连接的SSID
+  M5.Lcd.printf("SSID: %s\n", currentSSID);      // 显示当前Wi-Fi名称
+  M5.Lcd.printf("RSSI: %ddBm\n", WiFi.RSSI());   // 显示Wi-Fi信号强度
   
   // 显示空调电源状态
-  M5.Lcd.printf("Power: %s\n",       // 显示开关机状态
-                isPowerOn ? "ON" : "OFF");
+  M5.Lcd.printf("Power: %s\n", isPowerOn ? "ON" : "OFF"); // 显示开关机状态
   
   // 显示当前设置的温度
-  M5.Lcd.printf("Temp: %dC\n",       // 显示温度值，单位：摄氏度
-                currentTemp);
+  M5.Lcd.printf("Temp: %dC\n", currentTemp);     // 显示温度值，单位：摄氏度
+  
+  // 如果有待发送的温度变更，显示预览
+  if (tempChanged) {
+    M5.Lcd.printf("Set to: %dC\n", tempToSend);   // 显示即将设置的温度
+  }
 }
 
 // 初始化设置
 void setup() {
+  // 初始化串口通信
+  Serial.begin(115200);                    // 设置串口波特率
+  
   // 初始化 M5StickC Plus
   M5.begin();
   
-  // 设置LED PWM
-  ledcSetup(LED_CHANNEL, LED_FREQ, LED_RESOLUTION);
-  ledcAttachPin(LED_PIN, LED_CHANNEL);
-  ledcWrite(LED_CHANNEL, 0);  // 确保LED初始状态为关闭
-  
   // 设置显示屏方向和字体
-  M5.Lcd.setRotation(3);
-  M5.Lcd.fillScreen(BLACK);
-  M5.Lcd.setTextSize(2);
+  M5.Lcd.setRotation(3);                   // 设置屏幕旋转方向
+  M5.Lcd.fillScreen(BLACK);                // 清空屏幕
+  M5.Lcd.setTextSize(2);                   // 设置文字大小
   
   // 初始化红外发射器
-  irsend.begin();
+  irsend.begin();                          // 初始化红外发射功能
+  
+  if (debugMode && Serial) {               // 如果调试模式开启且串口可用
+    Serial.println("M5StickC Plus Air Conditioner Controller");
+    Serial.println("Debug mode enabled");
+    Serial.println("Initializing...");
+  }
   
   // 连接信号最强的WiFi
   connectToStrongestWiFi();
   
   // 设置MQTT服务器
-  client.setServer(mqtt_server, 1883);
-  client.setCallback(callback);
+  client.setServer(mqtt_server, 1883);     // 设置MQTT服务器
+  client.setCallback(callback);            // 设置回调函数
   
   // 初始化显示
-  updateDisplay();
+  updateDisplay();                         // 更新显示屏内容
+  
+  if (debugMode && Serial) {               // 如果调试模式开启且串口可用
+    Serial.println("Initialization complete");
+  }
 }
 
 // 发送命令函数实现
@@ -396,9 +394,9 @@ void sendCommand(uint8_t temperature) {
   };
 
   // 设置温度
-  uint8_t tempByte = temperatureToByte(temperature);
-  powerOnCommand[1] = tempByte;
-  powerOnCommand2[1] = tempByte;
+  uint8_t tempByte = temperatureToByte(temperature);  // 转换温度值为字节格式
+  powerOnCommand[1] = tempByte;                       // 设置第一个命令的温度
+  powerOnCommand2[1] = tempByte;                      // 设置第二个命令的温度
 
   // 计算校验和
   uint8_t checksum1 = calculateChecksum(powerOnCommand, 8);
@@ -406,6 +404,12 @@ void sendCommand(uint8_t temperature) {
   
   uint8_t checksum2 = calculateChecksum(powerOnCommand2, 8);
   powerOnCommand2[7] = checksum2 << 4;
+
+  // 打印调试信息
+  if (debugMode && Serial) {
+    Serial.printf("Sending IR command - Power: %s, Temp: %d\n", 
+                  isPowerOn ? "ON" : "OFF", temperature);
+  }
 
   // 第一个命令 - Block #1 头部和前4字节数据
   irsend.sendGeneric(kGreeHdrMark, kGreeHdrSpace,  // 头部标记和空间
@@ -457,8 +461,11 @@ void sendCommand(uint8_t temperature) {
                     powerOnCommand2 + 4,            // 发送后4字节数据
                     kGreePowerOnLength - 4,         // 剩余字节数
                     38, false, 0, 50);              // 载波频率、LSB、占空比
+                    
+  if (debugMode && Serial) {
+    Serial.println("IR command sent");
+  }
 }
-
 
 // 处理按钮事件
 void handleButton() {
@@ -475,6 +482,9 @@ void handleButton() {
     if (!btnALongPressed && (millis() - btnAPressTime >= LONG_PRESS_TIME)) {
       btnALongPressed = true;
       // 长按操作：重启设备
+      if (debugMode && Serial) {
+        Serial.println("Long press detected, restarting device");
+      }
       restartDevice();
     }
   } else {
@@ -488,13 +498,11 @@ void handleButton() {
         String payload = "{\"status\":\"on\",\"temp\":" + String(currentTemp) + "}";
         publishMessage(mqtt_pub_topic, payload.c_str());
         sendCommand(currentTemp);  // 开机时发送当前温度设置
-        breatheLEDOn();           // 开机呼吸灯效果
       } else {
         // 发送关机状态更新
         String payload = "{\"status\":\"off\",\"temp\":" + String(currentTemp) + "}";
         publishMessage(mqtt_pub_topic, payload.c_str());
         sendCommand(currentTemp);  // 关机时发送当前温度设置
-        breatheLEDOff();          // 关机呼吸灯效果
       }
       beepFeedback();           // 蜂鸣器提示音
       updateDisplay();          // 更新显示
@@ -505,25 +513,38 @@ void handleButton() {
     btnALongPressed = false;
   }
 
+  // 处理按钮B（温度调节）
   if (M5.BtnB.wasPressed()) {  // 如果按下按钮B
     if (isPowerOn) {           // 只在开机状态下调节温度
-      currentTemp++;           // 增加温度
-      if (currentTemp > 30) currentTemp = 16;  // 温度循环
-      sendCommand(currentTemp);
-      // 发送温度更新状态
-      String payload = "{\"status\":\"on\",\"temp\":" + String(currentTemp) + "}";
-      publishMessage(mqtt_pub_topic, payload.c_str());
-      breatheLEDOn();         // 温度调节使用开机效果
+      // 增加等待发送的温度
+      if (!tempChanged) {      // 如果是第一次按下
+        tempToSend = currentTemp; // 初始化为当前温度
+      }
+      
+      tempToSend++;           // 增加温度
+      if (tempToSend > 30) tempToSend = 16;  // 温度循环
+      
+      tempChanged = true;     // 标记温度已改变
+      tempSetTime = millis(); // 记录设置时间
+      
       beepFeedback();        // 蜂鸣器提示音
-      updateDisplay();       // 更新显示
+      
+      // 更新显示，显示即将设置的温度
+      updateDisplay();
+      
+      if (debugMode && Serial) {
+        Serial.printf("Temperature change queued: %d\n", tempToSend);
+      }
     }
   }
+  
+  // 检查并发送温度命令
+  checkAndSendTemp();
 }
-
 
 // 主循环
 void loop() {
-  M5.update();
+  M5.update();  // 更新M5StickC状态
   
   // 检查Wi-Fi连接超时
   if (WiFi.status() != WL_CONNECTED) {
@@ -533,6 +554,11 @@ void loop() {
       M5.Lcd.setCursor(0, 0);
       M5.Lcd.println("WiFi connection timeout");
       M5.Lcd.println("Restarting...");
+      
+      if (debugMode && Serial) {
+        Serial.println("WiFi connection timeout, restarting device");
+      }
+      
       delay(2000);
       restartDevice();
     }
@@ -543,6 +569,9 @@ void loop() {
   
   // 检查MQTT连接
   if (!client.connected()) {
+    if (debugMode && Serial) {
+      Serial.println("MQTT disconnected, reconnecting");
+    }
     connectMQTT();
   }
   client.loop();             // MQTT消息处理
